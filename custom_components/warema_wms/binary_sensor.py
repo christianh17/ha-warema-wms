@@ -133,9 +133,7 @@ class WaremaWmsMovingSensor(CoordinatorEntity[WaremaCoordinator], BinarySensorEn
         return state.moving if state else False
 
 
-class WaremaWeatherRainSensor(
-    CoordinatorEntity[WaremaCoordinator], BinarySensorEntity
-):
+class WaremaWeatherRainSensor(CoordinatorEntity[WaremaCoordinator], BinarySensorEntity):
     """Binary sensor: True when the weather station reports rain."""
 
     _attr_has_entity_name = True
