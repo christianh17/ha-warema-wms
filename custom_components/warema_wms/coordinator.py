@@ -126,9 +126,19 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
                     snr_int,
                     name,
                 )
-                await self.hass.async_add_executor_job(
+                blind = await self.hass.async_add_executor_job(
                     self.stick.blind_add, snr_int, name
                 )
+                # Replay product info from the config entry onto the Blind so
+                # cover entities can read it without an extra wire round-trip.
+                # If absent (config from old version), it will be filled in
+                # lazily after init via _enrich_product_info().
+                if blind is not None:
+                    pt = device.get("product_type")
+                    if pt is not None:
+                        blind.product_type = pt
+                        blind.is_with_blinds = device.get("is_with_blinds")
+                        blind.product_type_str = device.get("product_type_str")
 
         # Wait for initialization to complete (up to 30 seconds)
         try:
@@ -157,6 +167,63 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
                 await self.hass.async_add_executor_job(
                     self.stick.blind_get_position, snr_int
                 )
+
+        # Inline product-info enrichment for blinds added via an older config
+        # entry (no product_type in stored data). Runs only for blinds that
+        # still lack info, so steady-state startup cost is zero. The result is
+        # persisted back to entry.data so the lookup never repeats.
+        await self._enrich_product_info()
+
+    async def _enrich_product_info(self) -> None:
+        """Fill in missing product_type / is_with_blinds for blinds.
+
+        Issues a Block 37 read for every Blind missing product info, then
+        persists the result back to ``entry.data["devices"]`` so the next
+        startup sees it without another wire round-trip. Failures are logged
+        at INFO and left as None so the cover entity falls back to
+        device-type heuristics.
+        """
+        if not self.stick:
+            return
+        devices = list(self.entry.data.get(CONF_DEVICES, []))
+        by_snr = {int(d["snr"]): d for d in devices if "snr" in d}
+        changed = False
+
+        for blind in self.stick.get_blinds():
+            if blind.product_type is not None:
+                continue
+            try:
+                info = await self.hass.async_add_executor_job(
+                    self.stick.read_product_info, blind.snr
+                )
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.debug(
+                    "WaremaCoordinator: product info read failed for %s",
+                    blind.snr_hex,
+                    exc_info=True,
+                )
+                continue
+            if info is None:
+                continue
+            product_type, is_with_blinds = info
+            stored = by_snr.get(blind.snr)
+            if stored is not None:
+                stored["product_type"] = product_type
+                stored["is_with_blinds"] = is_with_blinds
+                stored["product_type_str"] = blind.product_type_str
+                changed = True
+
+        if changed:
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                data={**self.entry.data, CONF_DEVICES: devices},
+            )
+            _LOGGER.info(
+                "WaremaCoordinator: persisted product info for %d device(s)",
+                sum(
+                    1 for d in devices if d.get("product_type") is not None
+                ),
+            )
 
     async def async_disconnect(self) -> None:
         """Disconnect from the WMS stick."""

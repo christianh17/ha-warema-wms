@@ -407,6 +407,34 @@ async def _test_connection(
         except asyncio.TimeoutError:
             _LOGGER.warning("Device scan timed out during config flow")
 
+        # For each discovered blind, try to read the productType from Block 37
+        # so the user sees the right model name and the HA cover entity gets
+        # the right device_class / tilt support out of the box. This is a
+        # best-effort enrichment - if the motor is asleep the read returns
+        # None and we just leave the fields unset (coordinator will retry
+        # at runtime).
+        # Lazy import to avoid pulling pywarema at module load time.
+        from .pywarema.protocol import product_type_name
+
+        for dev in devices:
+            if dev.get("device_type", "") not in BLIND_DEVICE_TYPES:
+                continue
+            snr = dev.get("snr")
+            if snr is None:
+                continue
+            # blind_add is required so read_product_info can resolve the SNR.
+            await hass.async_add_executor_job(
+                stick.blind_add, int(snr), f"discovery-{snr}"
+            )
+            info = await hass.async_add_executor_job(
+                stick.read_product_info, int(snr)
+            )
+            if info is not None:
+                product_type, is_with_blinds = info
+                dev["product_type"] = product_type
+                dev["is_with_blinds"] = is_with_blinds
+                dev["product_type_str"] = product_type_name(product_type)
+
     except asyncio.TimeoutError as exc:
         raise CannotConnect("Connection timed out") from exc
     except Exception as exc:
@@ -1023,10 +1051,15 @@ class WaremaWmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._user_input[CONF_DEVICES] = []
             return self._create_entry()
 
-        device_options = {
-            str(d["snr"]): f"{d['device_type_str']} - SNR {d['snr']} ({d['snr_hex']})"
-            for d in blind_devices
-        }
+        # Prefer the product type name ("PergolaAwning") over the actuator
+        # hardware name ("Plug receiver") when we managed to detect it, so the
+        # user picks the right device by what's actually on their facade.
+        def _label(d: dict) -> str:
+            product = d.get("product_type_str")
+            primary = product or d.get("device_type_str", "?")
+            return f"{primary} - SNR {d['snr']} ({d['snr_hex']})"
+
+        device_options = {str(d["snr"]): _label(d) for d in blind_devices}
 
         schema = vol.Schema(
             {
@@ -1183,7 +1216,10 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
             )
 
         device_options = {
-            str(d["snr"]): f"{d['device_type_str']} - SNR {d['snr']} ({d['snr_hex']})"
+            str(d["snr"]): (
+                f"{d.get('product_type_str') or d.get('device_type_str', '?')}"
+                f" - SNR {d['snr']} ({d['snr_hex']})"
+            )
             for d in self._discovered_devices
         }
         return self.async_show_form(
@@ -1297,12 +1333,6 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         new.comfort_position = diff_int("comfort_position", cur.comfort_position if cur else None)
         new.comfort_angle = diff_int("comfort_angle", cur.comfort_angle if cur else None)
 
-        ia = user_input.get("is_absent")
-        if ia is not None:
-            ia = bool(ia)
-            if cur is None or ia != cur.is_absent:
-                new.is_absent = ia
-
         # Nothing changed -> close the dialog without contacting the device.
         if all(
             v is None
@@ -1312,7 +1342,6 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
                 new.manual_dwell_time,
                 new.comfort_position,
                 new.comfort_angle,
-                new.is_absent,
             )
         ):
             return self.async_create_entry(title="", data=dict(self.config_entry.options))
@@ -1364,10 +1393,6 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
                     "comfort_angle",
                     default=cur.comfort_angle if cur.comfort_angle is not None else 0,
                 ): vol.All(int, vol.Range(min=0, max=75)),
-                vol.Required(
-                    "is_absent",
-                    default=bool(cur.is_absent) if cur.is_absent is not None else False,
-                ): bool,
             }
         )
 
@@ -1382,7 +1407,6 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
             "current_manual_dwell_time": fmt(cur.manual_dwell_time),
             "current_comfort_position": fmt(cur.comfort_position, " %"),
             "current_comfort_angle": fmt(cur.comfort_angle, "°"),
-            "current_is_absent": "ja" if cur.is_absent else "nein" if cur.is_absent is not None else "—",
         }
 
 

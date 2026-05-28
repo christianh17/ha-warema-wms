@@ -41,9 +41,11 @@ from .const import (
     BLIND_DEVICE_TYPES,
     CONF_DEVICES,
     DOMAIN,
+    PRODUCT_TYPE_TO_DEVICE_CLASS,
     TILT_DEVICE_TYPES,
 )
 from .coordinator import WaremaCoordinator
+from .pywarema.protocol import product_type_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +86,8 @@ async def async_setup_entry(
                         device_type=device_type,
                         device_type_str=device_type_str,
                         entry_id=entry.entry_id,
+                        product_type=device.get("product_type"),
+                        is_with_blinds=device.get("is_with_blinds"),
                     )
                 )
     else:
@@ -107,6 +111,8 @@ async def async_setup_entry(
                         device_type=device_type,
                         device_type_str=device_type_str,
                         entry_id=entry.entry_id,
+                        product_type=device.get("product_type"),
+                        is_with_blinds=device.get("is_with_blinds"),
                     )
                 )
 
@@ -115,6 +121,39 @@ async def async_setup_entry(
         _LOGGER.info("Added %d Warema WMS cover entities", len(entities))
     else:
         _LOGGER.warning("No Warema WMS cover entities found")
+
+
+def _device_class_for(product_type: int | None) -> CoverDeviceClass:
+    """Map a productType int to the HA CoverDeviceClass.
+
+    Defaults to BLIND when the productType is unknown - that matches the
+    historical behaviour from before per-device product detection existed.
+    """
+    if product_type is None:
+        return CoverDeviceClass.BLIND
+    name = PRODUCT_TYPE_TO_DEVICE_CLASS.get(product_type)
+    if name is None:
+        return CoverDeviceClass.BLIND
+    try:
+        return CoverDeviceClass(name)
+    except ValueError:
+        return CoverDeviceClass.BLIND
+
+
+def _supports_tilt_for(
+    product_type: int | None,
+    is_with_blinds: bool | None,
+    device_type: str,
+) -> bool:
+    """Decide whether to expose tilt controls.
+
+    Priority: the motor's own is_with_blinds flag wins. If we never managed
+    to read it, fall back to the actuator-hardware whitelist that worked
+    before product detection existed (in-wall actuators 20/2E).
+    """
+    if is_with_blinds is not None:
+        return bool(is_with_blinds)
+    return device_type in TILT_DEVICE_TYPES
 
 
 def _wms_pos_to_ha(wms_pos: int) -> int:
@@ -157,7 +196,6 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
     """Representation of a Warema WMS blind as a HA Cover entity."""
 
     _attr_has_entity_name = True
-    _attr_device_class = CoverDeviceClass.BLIND
 
     def __init__(
         self,
@@ -168,6 +206,8 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         device_type: str,
         device_type_str: str,
         entry_id: str,
+        product_type: int | None = None,
+        is_with_blinds: bool | None = None,
     ) -> None:
         """Initialize the cover entity."""
         super().__init__(coordinator, context=snr)
@@ -176,12 +216,22 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         self._device_type = device_type
         self._device_type_str = device_type_str
         self._entry_id = entry_id
+        self._product_type = product_type
+        self._is_with_blinds = is_with_blinds
 
-        # Tilt (slat angle) only makes sense for slatted blinds. The device
-        # type reflects the actuator hardware: in-wall actuators (20/2E) drive
-        # Raffstoren with slats, while plug receivers / radio motors (21/25)
-        # drive awnings/roller shutters without slats. Expose tilt accordingly.
-        self._supports_tilt = device_type in TILT_DEVICE_TYPES
+        # Device class: prefer the per-device productType if known, otherwise
+        # default to BLIND (matches the pre-product-type behaviour for the
+        # in-wall actuators that have historically been the only supported
+        # devices).
+        self._attr_device_class = _device_class_for(product_type)
+
+        # Tilt (slat angle) requires slatted hardware. Authoritative source is
+        # the motor's is_with_blinds flag (Block 37 addr 14); when that hasn't
+        # been read yet, fall back to the device-type whitelist that worked
+        # before product detection existed.
+        self._supports_tilt = _supports_tilt_for(
+            product_type, is_with_blinds, device_type
+        )
         features = (
             CoverEntityFeature.OPEN
             | CoverEntityFeature.CLOSE
@@ -214,11 +264,17 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info for this cover."""
+        # Prefer the product-type name (e.g. "PergolaAwning") over the generic
+        # actuator-hardware string ("Plug receiver") when available - that's
+        # the model users actually recognise on their facade.
+        model = self._device_type_str
+        if self._product_type is not None:
+            model = f"{product_type_name(self._product_type)} ({self._device_type_str})"
         return DeviceInfo(
             identifiers={(DOMAIN, self._snr_hex)},
             name=self._attr_name,
             manufacturer="Warema",
-            model=self._device_type_str,
+            model=model,
             via_device=(DOMAIN, self._entry_id),
         )
 
@@ -434,6 +490,13 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
             "snr_hex": self._snr_hex,
             "device_type": self._device_type,
             "device_type_str": self._device_type_str,
+            "product_type": self._product_type,
+            "product_type_str": (
+                None
+                if self._product_type is None
+                else product_type_name(self._product_type)
+            ),
+            "is_with_blinds": self._is_with_blinds,
             "wms_position": state.position if state else -1,
             "wms_angle": state.angle if state else 0,
             "moving": state.moving if state else False,

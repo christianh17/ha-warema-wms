@@ -46,6 +46,75 @@ BLIND_DEVICE_TYPES = {"20", "21", "25", "2E"}
 
 
 # ---------------------------------------------------------------------------
+# Product types (EProductType in the manufacturer's the protocol notes)
+# ---------------------------------------------------------------------------
+#
+# The "product" is the thing the motor is moving (a Raffstore vs an Awning vs a
+# Roller Shutter) and is independent of the actuator *hardware* (Plug Receiver
+# vs UP Aktuator vs Radio Motor). The integer ID lives in Block 37 addr 12
+# alongside isWithBlinds/isWithRuntime flags - see the  plist
+# wms-plug-receiver-v3.plist.json, key "productParameters".
+#
+# Enum values derived from the master "EProductType" in
+# the protocol notes (grep for "A[A.EXTERNAL_VENETIAN_BLINDS=0]").
+
+PRODUCT_BLOCK = 37
+PRODUCT_ADDR = 12           # productType (UInt8)
+PRODUCT_ADDR_CONTROL = 13   # controlType
+PRODUCT_ADDR_BLINDS = 14    # isWithBlinds (0/1)
+PRODUCT_ADDR_RUNTIME = 15   # isWithRuntime
+
+PRODUCT_TYPE_NAMES: dict[int, str] = {
+    0: "ExternalVenetianBlind",
+    1: "InternalVenetianBlind",
+    2: "RollerShutter",
+    3: "Awning",
+    4: "AwningOneValance",
+    5: "AwningOneOrTwoWindsensors",
+    6: "AwningOneValanceOneOrTwoWindsensors",
+    7: "ConservatoryAwning",
+    8: "FacadeAwning",
+    9: "DroparmAwning",
+    10: "VerticalAwning",
+    11: "Markisolette",
+    12: "PleatedBlindInside",
+    13: "RollerBlindInside",
+    14: "VerticalLouvreBlind",
+    15: "Window",
+    16: "LightSwitching",
+    17: "LoadSwitching",
+    18: "LightDimming",
+    19: "LoadDimming",
+    20: "PlugSocketSwitching",
+    21: "Valance",
+    22: "AwningTwoValances",
+    23: "AwningTwoValancesOneOrTwoWindsensors",
+    24: "SunSail",
+    25: "PergolaAwning",
+    26: "LedDimmable",
+    30: "FloatingOutput",
+    39: "ValanceRollerBlindSmart",
+    255: "Unknown",
+}
+
+# Products that have slat-tilting hardware. Used as the authoritative answer
+# when the per-device isWithBlinds flag in Block 37 is unreadable (motor asleep,
+# old firmware, etc).
+PRODUCT_TYPES_WITH_TILT: set[int] = {
+    0,   # ExternalVenetianBlind
+    1,   # InternalVenetianBlind
+    14,  # VerticalLouvreBlind
+}
+
+
+def product_type_name(product_type: int | None) -> str:
+    """Friendly name for a product type ID, or '<unknown>' for None/missing."""
+    if product_type is None:
+        return "<unknown>"
+    return PRODUCT_TYPE_NAMES.get(product_type, f"ProductType{product_type}")
+
+
+# ---------------------------------------------------------------------------
 # SNR conversion helpers
 # ---------------------------------------------------------------------------
 

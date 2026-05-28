@@ -39,11 +39,15 @@ from .protocol import (
     ADDR_MANUAL_SLAT_ANGLE,
     BLIND_DEVICE_TYPES,
     MOTOR_PARAM_BLOCK,
+    PRODUCT_ADDR,
+    PRODUCT_BLOCK,
+    PRODUCT_TYPES_WITH_TILT,
     MotorParameters,
     decode_frame,
     encode_cmd,
     manual_position_from_byte,
     manual_position_to_byte,
+    product_type_name,
     slat_angle_from_byte,
     slat_angle_to_byte,
     snr_hex_to_num,
@@ -105,6 +109,12 @@ class Blind:
     )
     device_type: str = "20"
     device_type_str: str = "Actuator UP"
+    # Product info read from Block 37 (the motor's productParameters).
+    # None means "not yet read" or "read failed" - callers should fall back to
+    # device-type-based heuristics in that case.
+    product_type: int | None = None
+    product_type_str: str | None = None
+    is_with_blinds: bool | None = None  # True if the motor has tilting slats
 
 
 class WmsMessage:
@@ -972,6 +982,65 @@ class WmsStick:
             len(patches),
         )
         return True
+
+    def read_product_info(
+        self, blind_id, timeout: float = 3.0
+    ) -> Optional[tuple[int, bool]]:
+        """Read the motor's product type from Block 37 (productParameters).
+
+        Reads 4 bytes from block 37 addr 12: productType, controlType,
+        isWithBlinds, isWithRuntime. Returns ``(product_type, is_with_blinds)``
+        on success, or ``None`` if the read times out / fails.
+
+        On success the result is also stored on the matching ``Blind`` so
+        downstream callers can read ``blind.product_type`` / ``blind.is_with_blinds``
+        without another wire round-trip.
+
+        See ``the protocol notes`` + the  ``wms-plug-receiver-v3.plist.json``
+        ("productParameters" key) for the byte layout. The productType enum is
+        in ``protocol.PRODUCT_TYPE_NAMES``.
+        """
+        blind = self._get_blind(blind_id)
+        if not blind:
+            _LOGGER.warning(
+                "WmsStick: read_product_info: Cannot find blind '%s'", blind_id
+            )
+            return None
+
+        data = self._mb8_read_sync(
+            blind.snr_hex,
+            block=PRODUCT_BLOCK,
+            addr=PRODUCT_ADDR,
+            size=4,
+            timeout=timeout,
+        )
+        if data is None or len(data) < 3:
+            _LOGGER.info(
+                "WmsStick: read_product_info: no response from %s (motor asleep?)",
+                blind.snr_hex,
+            )
+            return None
+
+        product_type = data[0]
+        # is_with_blinds: 0/1, 0xFF = unset
+        with_blinds_byte = data[2]
+        if with_blinds_byte == 0xFF:
+            # Unset on this firmware: fall back to product-type-based default.
+            is_with_blinds = product_type in PRODUCT_TYPES_WITH_TILT
+        else:
+            is_with_blinds = bool(with_blinds_byte)
+
+        blind.product_type = product_type
+        blind.product_type_str = product_type_name(product_type)
+        blind.is_with_blinds = is_with_blinds
+        _LOGGER.info(
+            "WmsStick: read_product_info %s: type=%d (%s) tilt=%s",
+            blind.snr_hex,
+            product_type,
+            blind.product_type_str,
+            is_with_blinds,
+        )
+        return product_type, is_with_blinds
 
     def blind_wave(self, blind_id) -> None:
         """Send a wave (identify) request to a blind.
