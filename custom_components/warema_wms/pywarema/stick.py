@@ -609,9 +609,7 @@ class WmsStick:
                 params.manual_position = manual_position_from_byte(data[0])
                 params.manual_angle = slat_angle_from_byte(data[1])
                 # data[2] = dummy (always 0xFF), data[3] reserved
-                params.manual_dwell_time = (
-                    None if data[4] == 0xFF else int(data[4])
-                )
+                params.manual_dwell_time = None if data[4] == 0xFF else int(data[4])
 
         def set_comfort(data: bytes) -> None:
             if len(data) >= 2:
@@ -663,7 +661,9 @@ class WmsStick:
     # write 8 data chunks + control/trailer bytes to block 8, then commit at
     # 0x01F7 to trigger an atomic copy block 8 -> block 38.
     _TB_CHUNK_STARTS = (0x0007, 0x004A, 0x008D, 0x00D0, 0x0113, 0x0156, 0x0199, 0x01DC)
-    _TB_DATA_BYTES_PER_FULL_CHUNK = 67  # 7 full chunks of 67 + 1 chunk of 27 = 496 bytes
+    _TB_DATA_BYTES_PER_FULL_CHUNK = (
+        67  # 7 full chunks of 67 + 1 chunk of 27 = 496 bytes
+    )
     _TB_DATA_BYTES_LAST_CHUNK = 27
     _TB_BLOCK_38_OFFSET = 8  # block_8_addr = block_38_addr + 8 (~90% match in trace)
     _TB_BLOCK_38_SIZE = 496  # block 38 covers addrs 0..495
@@ -675,7 +675,9 @@ class WmsStick:
     _TB_HEADER_DATA = bytes.fromhex("03010103")
     _TB_TRAILER1_ADDR = 0x0007  # overwrites first 5 bytes of chunk 0
     _TB_TRAILER1_DATA = bytes.fromhex("0401FF00FF")
-    _TB_TRAILER2_ADDR = 0x0001  # overwrites addrs 0x0001-0x0007 (incl. last byte of trailer1)
+    _TB_TRAILER2_ADDR = (
+        0x0001  # overwrites addrs 0x0001-0x0007 (incl. last byte of trailer1)
+    )
     _TB_TRAILER2_DATA = bytes.fromhex("06010400000200")
     _TB_COMMIT_ADDR = 0x01F7
     _TB_COMMIT_DATA = bytes.fromhex("0101")
@@ -822,42 +824,74 @@ class WmsStick:
             )
             if not ok:
                 _LOGGER.warning(
-                    "transfer_block: chunk %d write to block8/addr=0x%04X failed", i, chunk_addr
+                    "transfer_block: chunk %d write to block8/addr=0x%04X failed",
+                    i,
+                    chunk_addr,
                 )
                 return False
             src += data_len
-        assert src == self._TB_BLOCK_38_SIZE, f"chunk slicing covered {src} bytes, expected 496"
+        assert (
+            src == self._TB_BLOCK_38_SIZE
+        ), f"chunk slicing covered {src} bytes, expected 496"
 
         # Header at 0x0000 (init transfer)
         if not self._mb8_write_sync(
-            snr_hex, block=8, addr=self._TB_HEADER_ADDR, data=self._TB_HEADER_DATA, timeout=per_write_timeout
+            snr_hex,
+            block=8,
+            addr=self._TB_HEADER_ADDR,
+            data=self._TB_HEADER_DATA,
+            timeout=per_write_timeout,
         ):
             _LOGGER.warning("transfer_block: header write failed")
             return False
         # Read-back of addr 0x0000 (status check observed in trace, ignored value)
-        self._mb8_read_sync(snr_hex, block=8, addr=self._TB_HEADER_ADDR, size=1, timeout=per_write_timeout)
+        self._mb8_read_sync(
+            snr_hex,
+            block=8,
+            addr=self._TB_HEADER_ADDR,
+            size=1,
+            timeout=per_write_timeout,
+        )
 
         # Trailer 1 at 0x0007 (5 bytes - overwrites first bytes of chunk 0)
         if not self._mb8_write_sync(
-            snr_hex, block=8, addr=self._TB_TRAILER1_ADDR, data=self._TB_TRAILER1_DATA, timeout=per_write_timeout
+            snr_hex,
+            block=8,
+            addr=self._TB_TRAILER1_ADDR,
+            data=self._TB_TRAILER1_DATA,
+            timeout=per_write_timeout,
         ):
             _LOGGER.warning("transfer_block: trailer1 write failed")
             return False
         # Trailer 2 at 0x0001 (7 bytes - overwrites trailer1's last byte too)
         if not self._mb8_write_sync(
-            snr_hex, block=8, addr=self._TB_TRAILER2_ADDR, data=self._TB_TRAILER2_DATA, timeout=per_write_timeout
+            snr_hex,
+            block=8,
+            addr=self._TB_TRAILER2_ADDR,
+            data=self._TB_TRAILER2_DATA,
+            timeout=per_write_timeout,
         ):
             _LOGGER.warning("transfer_block: trailer2 write failed")
             return False
 
         # Commit at 0x01F7 (triggers atomic copy block 8 -> block 38)
         if not self._mb8_write_sync(
-            snr_hex, block=8, addr=self._TB_COMMIT_ADDR, data=self._TB_COMMIT_DATA, timeout=per_write_timeout
+            snr_hex,
+            block=8,
+            addr=self._TB_COMMIT_ADDR,
+            data=self._TB_COMMIT_DATA,
+            timeout=per_write_timeout,
         ):
             _LOGGER.warning("transfer_block: commit write failed")
             return False
         # Read-back of commit status (observed in trace).
-        self._mb8_read_sync(snr_hex, block=8, addr=self._TB_COMMIT_ADDR, size=1, timeout=per_write_timeout)
+        self._mb8_read_sync(
+            snr_hex,
+            block=8,
+            addr=self._TB_COMMIT_ADDR,
+            size=1,
+            timeout=per_write_timeout,
+        )
 
         _LOGGER.info("transfer_block: full flow completed for %s", snr_hex)
         return True
@@ -891,7 +925,9 @@ class WmsStick:
             return False
 
         # 1. Read current block-38 snapshot.
-        _LOGGER.info("write_motor_parameters: reading current block 38 from %s", blind.snr_hex)
+        _LOGGER.info(
+            "write_motor_parameters: reading current block 38 from %s", blind.snr_hex
+        )
         current = self._read_full_block_38(blind.snr_hex, timeout=timeout)
         if current is None:
             _LOGGER.warning(
@@ -905,23 +941,43 @@ class WmsStick:
         patches: list[tuple[str, int, int]] = []
         if params.manual_position is not None:
             patches.append(
-                ("manual_position", ADDR_MANUAL_POSITION, manual_position_to_byte(params.manual_position))
+                (
+                    "manual_position",
+                    ADDR_MANUAL_POSITION,
+                    manual_position_to_byte(params.manual_position),
+                )
             )
         if params.manual_angle is not None:
             patches.append(
-                ("manual_angle", ADDR_MANUAL_SLAT_ANGLE, slat_angle_to_byte(params.manual_angle))
+                (
+                    "manual_angle",
+                    ADDR_MANUAL_SLAT_ANGLE,
+                    slat_angle_to_byte(params.manual_angle),
+                )
             )
         if params.manual_dwell_time is not None:
             patches.append(
-                ("manual_dwell_time", ADDR_MANUAL_DWELL_TIME, int(params.manual_dwell_time) & 0xFF)
+                (
+                    "manual_dwell_time",
+                    ADDR_MANUAL_DWELL_TIME,
+                    int(params.manual_dwell_time) & 0xFF,
+                )
             )
         if params.comfort_position is not None:
             patches.append(
-                ("comfort_position", ADDR_COMFORT_POSITION, manual_position_to_byte(params.comfort_position))
+                (
+                    "comfort_position",
+                    ADDR_COMFORT_POSITION,
+                    manual_position_to_byte(params.comfort_position),
+                )
             )
         if params.comfort_angle is not None:
             patches.append(
-                ("comfort_angle", ADDR_COMFORT_SLAT_ANGLE, slat_angle_to_byte(params.comfort_angle))
+                (
+                    "comfort_angle",
+                    ADDR_COMFORT_SLAT_ANGLE,
+                    slat_angle_to_byte(params.comfort_angle),
+                )
             )
         if params.is_absent is not None:
             patches.append(

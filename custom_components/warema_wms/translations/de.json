@@ -1,0 +1,15 @@
+{
+  "entity": {
+    "sensor": {
+      "weather_temperature": { "name": "Temperatur" },
+      "weather_wind_speed": { "name": "Windgeschwindigkeit" },
+      "weather_brightness": { "name": "Helligkeit" }
+    },
+    "binary_sensor": {
+      "weather_rain": { "name": "Regen" }
+    },
+    "button": {
+      "identify": { "name": "Identifizieren" }
+    }
+  }
+}

@@ -14,6 +14,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
@@ -25,9 +26,11 @@ from .const import (
     BLIND_DEVICE_TYPES,
     DOMAIN,
     POS_UPDATE_INTERVAL,
+    SIGNAL_NEW_WEATHER_STATION,
     TOPIC_BLIND_POSITION_UPDATE,
     TOPIC_INIT_COMPLETION,
     TOPIC_SCANNED_DEVICES,
+    TOPIC_WEATHER_BROADCAST,
     WATCH_MOVING_INTERVAL,
 )
 
@@ -57,6 +60,18 @@ class BlindState:
         )
 
 
+@dataclass(frozen=True)
+class WeatherState:
+    """Immutable snapshot of a weather station broadcast."""
+
+    snr: int
+    snr_hex: str
+    temp: float  # degrees Celsius
+    wind: float  # m/s
+    lumen: int  # brightness (lux)
+    rain: bool
+
+
 class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
     """Manages the WMS Stick and coordinates data with HA entities.
 
@@ -79,6 +94,10 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         self._scanned_devices: list[dict] = []
         # Initialize empty data dict (filled by _wms_callback)
         self.data: dict[int, BlindState] = {}
+        # Latest weather broadcast per station SNR (filled by _wms_callback).
+        # Weather stations are not in CONF_DEVICES; their entities are created
+        # dynamically on the first broadcast via SIGNAL_NEW_WEATHER_STATION.
+        self.weather_data: dict[int, WeatherState] = {}
 
     async def async_connect(self) -> None:
         """Connect to the WMS stick and wait for initialization.
@@ -220,9 +239,7 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
             )
             _LOGGER.info(
                 "WaremaCoordinator: persisted product info for %d device(s)",
-                sum(
-                    1 for d in devices if d.get("product_type") is not None
-                ),
+                sum(1 for d in devices if d.get("product_type") is not None),
             )
 
     async def async_disconnect(self) -> None:
@@ -315,6 +332,15 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         if self.stick:
             self.stick.blind_get_position(snr)
 
+    def wave(self, snr: int) -> None:
+        """Send a wave (identify) request so the blind briefly moves.
+
+        Args:
+            snr: Integer serial number of the blind.
+        """
+        if self.stick:
+            self.stick.blind_wave(snr)
+
     # -----------------------------------------------------------------------
     # WMS callback (called from background thread)
     # -----------------------------------------------------------------------
@@ -373,8 +399,33 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
             self._scanned_devices = payload.get("devices", [])
             self.hass.loop.call_soon_threadsafe(self._scan_event.set)
 
-        elif topic == "wms-vb-rcv-weather-broadcast":
-            _LOGGER.debug("WMS weather: %s", payload.get("weather", {}))
+        elif topic == TOPIC_WEATHER_BROADCAST:
+            weather = payload.get("weather", {})
+            snr = weather.get("snr")
+            if not snr:
+                return
+            state = WeatherState(
+                snr=snr,
+                snr_hex=weather.get("snr_hex", ""),
+                temp=weather.get("temp", 0),
+                wind=weather.get("wind", 0),
+                lumen=weather.get("lumen", 0),
+                rain=bool(weather.get("rain", False)),
+            )
+            is_new = snr not in self.weather_data
+            self.weather_data = {**self.weather_data, snr: state}
+
+            if is_new:
+                # Tell the sensor/binary_sensor platforms to create entities for
+                # this newly seen station.
+                self.hass.loop.call_soon_threadsafe(
+                    async_dispatcher_send,
+                    self.hass,
+                    f"{SIGNAL_NEW_WEATHER_STATION}_{self.entry.entry_id}",
+                    snr,
+                )
+            # Refresh existing weather entities with the new reading.
+            self.hass.loop.call_soon_threadsafe(self.async_update_listeners)
 
         elif topic == "wms-vb-rcv-scan-request":
             _LOGGER.debug("WMS scan request from SNR %s", payload.get("snr"))

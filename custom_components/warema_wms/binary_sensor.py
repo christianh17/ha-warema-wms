@@ -14,11 +14,17 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import BLIND_DEVICE_TYPES, CONF_DEVICES, DOMAIN
+from .const import (
+    BLIND_DEVICE_TYPES,
+    CONF_DEVICES,
+    DOMAIN,
+    SIGNAL_NEW_WEATHER_STATION,
+)
 from .coordinator import WaremaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,6 +62,29 @@ async def async_setup_entry(
     if entities:
         async_add_entities(entities)
         _LOGGER.info("Added %d Warema WMS binary sensor entities", len(entities))
+
+    # Weather stations broadcast unsolicited and are not in CONF_DEVICES, so
+    # create their rain sensor dynamically on first sight (and for any station
+    # that already broadcast before this platform set up).
+    added_stations: set[int] = set()
+
+    @callback
+    def _add_weather_station(snr: int) -> None:
+        if snr in added_stations:
+            return
+        added_stations.add(snr)
+        async_add_entities([WaremaWeatherRainSensor(coordinator, snr, entry.entry_id)])
+
+    for snr in coordinator.weather_data:
+        _add_weather_station(snr)
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            f"{SIGNAL_NEW_WEATHER_STATION}_{entry.entry_id}",
+            _add_weather_station,
+        )
+    )
 
 
 class WaremaWmsMovingSensor(CoordinatorEntity[WaremaCoordinator], BinarySensorEntity):
@@ -102,3 +131,53 @@ class WaremaWmsMovingSensor(CoordinatorEntity[WaremaCoordinator], BinarySensorEn
         """Return True if the blind is moving."""
         state = self._get_blind_state()
         return state.moving if state else False
+
+
+class WaremaWeatherRainSensor(
+    CoordinatorEntity[WaremaCoordinator], BinarySensorEntity
+):
+    """Binary sensor: True when the weather station reports rain."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.MOISTURE
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        entry_id: str,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._entry_id = entry_id
+
+        self._attr_translation_key = "weather_rain"
+        self._attr_icon = "mdi:weather-rainy"
+        self._attr_unique_id = f"{DOMAIN}_weather_{snr}_rain"
+
+    def _get_state(self):
+        return self.coordinator.weather_data.get(self._snr)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        state = self._get_state()
+        snr_hex = state.snr_hex if state else ""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"weather_{self._snr}")},
+            name=f"Weather station {self._snr}",
+            manufacturer="Warema",
+            model="Weather station",
+            via_device=(DOMAIN, self._entry_id),
+            serial_number=snr_hex or None,
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._get_state() is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        state = self._get_state()
+        if state is None:
+            return None
+        return state.rain

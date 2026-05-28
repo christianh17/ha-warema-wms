@@ -127,5 +127,18 @@
       "invalid_device": "Selected device not recognized.",
       "cannot_read_params": "Failed to read parameters from the motor. The device may be unreachable. Wake the motor (e.g. with the handheld remote) and try again."
     }
+  },
+  "entity": {
+    "sensor": {
+      "weather_temperature": { "name": "Temperature" },
+      "weather_wind_speed": { "name": "Wind speed" },
+      "weather_brightness": { "name": "Brightness" }
+    },
+    "binary_sensor": {
+      "weather_rain": { "name": "Rain" }
+    },
+    "button": {
+      "identify": { "name": "Identify" }
+    }
   }
 }

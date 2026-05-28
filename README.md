@@ -24,6 +24,8 @@
 
 - 🪟 **Full blind control** — Open, close, stop, set position and tilt angle
 - 📊 **Real-time monitoring** — Position, angle, and motion detection sensors
+- 🌦️ **Weather station support** — Temperature, wind, brightness and rain sensors, auto-discovered from WMS weather-station broadcasts
+- 🔦 **Identify button** — Briefly waves a blind so you can match an entity to the physical device
 - 🔌 **USB auto-detection** — Plug in your Warema WMS Stick and go
 - ⚙️ **Easy setup wizard** — Multiple discovery methods (manual, Wandsender pairing, new network)
 - 🌍 **Multiple device support** — Works with Type 20, 21, 25, and 2E actuators
@@ -122,6 +124,13 @@ Any motor reachable from one of these WMS actuators:
 | **25** | Radio motor |
 | **2E** | Actuator 230V UP |
 
+### Weather stations (read-only)
+
+A WMS weather station (type **06**) is supported as a monitoring device: the
+integration listens for its broadcasts and exposes temperature, wind,
+brightness and rain sensors. Weather stations are not controllable and are not
+part of the device-selection wizard — see *Weather Station Entities* below.
+
 ### Product types (auto-detected per device)
 
 The integration reads the motor's `productType` (Block 37) on first connect
@@ -181,7 +190,27 @@ Each blind appears as a `cover` entity with:
 ### Binary Sensor Entities
 - **Moving** — `on` if blind is moving, `off` if stopped
 
-> All entities are auto-discovered and named from the device's internal name.
+### Button Entities
+- **Identify** — Sends a wave/beckon so the blind briefly moves, to help you
+  match the entity to the physical device
+
+### Weather Station Entities
+
+If a WMS weather station (device type `06`) is on the network, its periodic
+broadcasts are decoded into a dedicated *Weather station &lt;SNR&gt;* device:
+
+| Entity | Unit | Device class |
+|--------|------|--------------|
+| **Temperature** | °C | `temperature` |
+| **Wind speed** | m/s | `wind_speed` |
+| **Brightness** | lx | `illuminance` |
+| **Rain** | on/off | `moisture` |
+
+> Weather stations transmit unsolicited and are **not** part of the setup
+> wizard. Their entities appear automatically once the first broadcast arrives
+> (usually within a few minutes of startup).
+
+> All blind entities are auto-discovered and named from the device's internal name.
 
 ---
 
@@ -242,8 +271,12 @@ The WMS protocol uses ASCII frames over serial at 125,000 baud:
 {R04FFFFFF7020<panid>02}     → Scan for devices
 {R06<snr>801001000005}       → Get blind position
 {R06<snr>707003<pos><ang>FFFF} → Move blind to position
-{R06<snr>70700 1FFFFFFFFFF00}  → Stop blind
+{R06<snr>707001FFFFFFFFFF00}   → Stop blind
+{R06<snr>7050...}            → Wave / beckon (identify)
 ```
+
+Weather stations push their readings unsolicited as `7080` broadcasts, which the
+integration decodes into temperature, wind, brightness and rain.
 
 Responses use prefixes: `{r`, `{a}`, `{g`, `{v`, `{f}`
 

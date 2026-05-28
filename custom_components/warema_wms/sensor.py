@@ -10,14 +10,25 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import LIGHT_LUX, UnitOfSpeed, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import BLIND_DEVICE_TYPES, CONF_DEVICES, DOMAIN
+from .const import (
+    BLIND_DEVICE_TYPES,
+    CONF_DEVICES,
+    DOMAIN,
+    SIGNAL_NEW_WEATHER_STATION,
+)
 from .coordinator import WaremaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,6 +37,31 @@ _LOGGER = logging.getLogger(__name__)
 _SENSOR_DEFS = [
     ("position", "WMS Position", "%", "mdi:window-shutter"),
     ("angle", "WMS Angle", None, "mdi:angle-acute"),
+]
+
+# (attr, translation_key, unit, device_class, icon) for weather station readings.
+_WEATHER_SENSOR_DEFS = [
+    (
+        "temp",
+        "weather_temperature",
+        UnitOfTemperature.CELSIUS,
+        SensorDeviceClass.TEMPERATURE,
+        "mdi:thermometer",
+    ),
+    (
+        "wind",
+        "weather_wind_speed",
+        UnitOfSpeed.METERS_PER_SECOND,
+        SensorDeviceClass.WIND_SPEED,
+        "mdi:weather-windy",
+    ),
+    (
+        "lumen",
+        "weather_brightness",
+        LIGHT_LUX,
+        SensorDeviceClass.ILLUMINANCE,
+        "mdi:white-balance-sunny",
+    ),
 ]
 
 
@@ -77,6 +113,33 @@ async def async_setup_entry(
     if entities:
         async_add_entities(entities)
         _LOGGER.info("Added %d Warema WMS sensor entities", len(entities))
+
+    # Weather stations are not part of CONF_DEVICES: they broadcast
+    # unsolicited. Create their sensors dynamically the first time a station is
+    # seen, and cover any station that already broadcast before this platform
+    # finished setting up.
+    added_stations: set[int] = set()
+
+    @callback
+    def _add_weather_station(snr: int) -> None:
+        if snr in added_stations:
+            return
+        added_stations.add(snr)
+        async_add_entities(
+            WaremaWeatherSensor(coordinator, snr, entry.entry_id, *defn)
+            for defn in _WEATHER_SENSOR_DEFS
+        )
+
+    for snr in coordinator.weather_data:
+        _add_weather_station(snr)
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            f"{SIGNAL_NEW_WEATHER_STATION}_{entry.entry_id}",
+            _add_weather_station,
+        )
+    )
 
 
 class WaremaWmsSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
@@ -171,3 +234,59 @@ class WaremaSnrSensor(SensorEntity):
     def native_value(self) -> str:
         """Return the SNR as a formatted string (dec and hex)."""
         return f"{self._snr} (hex: {self._snr_hex})"
+
+
+class WaremaWeatherSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
+    """A numeric sensor mirroring one field of a WMS weather broadcast."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        entry_id: str,
+        attr: str,
+        translation_key: str,
+        unit: str,
+        device_class: SensorDeviceClass,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._entry_id = entry_id
+        self._field = attr
+
+        self._attr_translation_key = translation_key
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+        self._attr_icon = icon
+        self._attr_unique_id = f"{DOMAIN}_weather_{snr}_{attr}"
+
+    def _get_state(self):
+        return self.coordinator.weather_data.get(self._snr)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        state = self._get_state()
+        snr_hex = state.snr_hex if state else ""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"weather_{self._snr}")},
+            name=f"Weather station {self._snr}",
+            manufacturer="Warema",
+            model="Weather station",
+            via_device=(DOMAIN, self._entry_id),
+            serial_number=snr_hex or None,
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._get_state() is not None
+
+    @property
+    def native_value(self) -> float | int | None:
+        state = self._get_state()
+        if state is None:
+            return None
+        return getattr(state, self._field)

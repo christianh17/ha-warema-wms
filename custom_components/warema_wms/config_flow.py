@@ -426,9 +426,7 @@ async def _test_connection(
             await hass.async_add_executor_job(
                 stick.blind_add, int(snr), f"discovery-{snr}"
             )
-            info = await hass.async_add_executor_job(
-                stick.read_product_info, int(snr)
-            )
+            info = await hass.async_add_executor_job(stick.read_product_info, int(snr))
             if info is not None:
                 product_type, is_with_blinds = info
                 dev["product_type"] = product_type
@@ -1247,9 +1245,7 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         # store the manualOperation / scene / common params we expose. Radio
         # motors (25) use a different parameter layout.
         configurable = [
-            d
-            for d in devices
-            if d.get("device_type", "") in {"20", "21", "2E"}
+            d for d in devices if d.get("device_type", "") in {"20", "21", "2E"}
         ]
         if not configurable:
             return self.async_abort(reason="no_configurable_devices")
@@ -1268,14 +1264,15 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         registry = dr.async_get(self.hass)
 
         def label_for(d: dict) -> str:
-            entry = registry.async_get_device(
-                identifiers={(DOMAIN, d["snr_hex"])}
-            )
+            entry = registry.async_get_device(identifiers={(DOMAIN, d["snr_hex"])})
             friendly = entry.name_by_user if entry and entry.name_by_user else None
             if not friendly and entry:
                 friendly = entry.name
             base = f"SNR {d['snr']} ({d['snr_hex']})"
-            if friendly and friendly != f"{d.get('device_type_str', '')} {d['snr']}".strip():
+            if (
+                friendly
+                and friendly != f"{d.get('device_type_str', '')} {d['snr']}".strip()
+            ):
                 return f"{friendly} - {base}"
             # Fallback: keep the original "<type> - SNR <n> (<hex>)" format.
             return f"{d.get('device_type_str', '?')} - {base}"
@@ -1283,9 +1280,7 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         device_options = {str(d["snr"]): label_for(d) for d in configurable}
         return self.async_show_form(
             step_id="configure_firmware",
-            data_schema=vol.Schema(
-                {vol.Required("device"): vol.In(device_options)}
-            ),
+            data_schema=vol.Schema({vol.Required("device"): vol.In(device_options)}),
             description_placeholders={"device_count": str(len(configurable))},
         )
 
@@ -1310,7 +1305,9 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
             return self.async_show_form(
                 step_id="firmware_params",
                 data_schema=self._build_firmware_schema(self._fw_current_params),
-                description_placeholders=self._firmware_placeholders(self._fw_current_params),
+                description_placeholders=self._firmware_placeholders(
+                    self._fw_current_params
+                ),
             )
 
         # Submit: build a MotorParameters with only the changed fields and write.
@@ -1327,11 +1324,19 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
             v = int(v)
             return v if v != current_val else None
 
-        new.manual_position = diff_int("manual_position", cur.manual_position if cur else None)
+        new.manual_position = diff_int(
+            "manual_position", cur.manual_position if cur else None
+        )
         new.manual_angle = diff_int("manual_angle", cur.manual_angle if cur else None)
-        new.manual_dwell_time = diff_int("manual_dwell_time", cur.manual_dwell_time if cur else None)
-        new.comfort_position = diff_int("comfort_position", cur.comfort_position if cur else None)
-        new.comfort_angle = diff_int("comfort_angle", cur.comfort_angle if cur else None)
+        new.manual_dwell_time = diff_int(
+            "manual_dwell_time", cur.manual_dwell_time if cur else None
+        )
+        new.comfort_position = diff_int(
+            "comfort_position", cur.comfort_position if cur else None
+        )
+        new.comfort_angle = diff_int(
+            "comfort_angle", cur.comfort_angle if cur else None
+        )
 
         # Nothing changed -> close the dialog without contacting the device.
         if all(
@@ -1344,7 +1349,9 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
                 new.comfort_angle,
             )
         ):
-            return self.async_create_entry(title="", data=dict(self.config_entry.options))
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
 
         ok = await self.hass.async_add_executor_job(
             coordinator.stick.write_motor_parameters, self._fw_selected_snr, new
@@ -1375,7 +1382,9 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
             {
                 vol.Required(
                     "manual_position",
-                    default=cur.manual_position if cur.manual_position is not None else 100,
+                    default=(
+                        cur.manual_position if cur.manual_position is not None else 100
+                    ),
                 ): vol.All(int, vol.Range(min=0, max=100)),
                 vol.Required(
                     "manual_angle",
@@ -1383,11 +1392,17 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
                 ): vol.All(int, vol.Range(min=0, max=75)),
                 vol.Required(
                     "manual_dwell_time",
-                    default=cur.manual_dwell_time if cur.manual_dwell_time is not None else 0,
+                    default=(
+                        cur.manual_dwell_time
+                        if cur.manual_dwell_time is not None
+                        else 0
+                    ),
                 ): vol.All(int, vol.Range(min=0, max=254)),
                 vol.Required(
                     "comfort_position",
-                    default=cur.comfort_position if cur.comfort_position is not None else 50,
+                    default=(
+                        cur.comfort_position if cur.comfort_position is not None else 50
+                    ),
                 ): vol.All(int, vol.Range(min=0, max=100)),
                 vol.Required(
                     "comfort_angle",
@@ -1399,8 +1414,10 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
     @staticmethod
     def _firmware_placeholders(cur) -> dict[str, str]:
         """Show the current values in the form description."""
+
         def fmt(v, unit=""):
             return f"{v}{unit}" if v is not None else "—"
+
         return {
             "current_manual_position": fmt(cur.manual_position, " %"),
             "current_manual_angle": fmt(cur.manual_angle, "°"),

@@ -59,10 +59,10 @@ BLIND_DEVICE_TYPES = {"20", "21", "25", "2E"}
 # the protocol notes (grep for "A[A.EXTERNAL_VENETIAN_BLINDS=0]").
 
 PRODUCT_BLOCK = 37
-PRODUCT_ADDR = 12           # productType (UInt8)
-PRODUCT_ADDR_CONTROL = 13   # controlType
-PRODUCT_ADDR_BLINDS = 14    # isWithBlinds (0/1)
-PRODUCT_ADDR_RUNTIME = 15   # isWithRuntime
+PRODUCT_ADDR = 12  # productType (UInt8)
+PRODUCT_ADDR_CONTROL = 13  # controlType
+PRODUCT_ADDR_BLINDS = 14  # isWithBlinds (0/1)
+PRODUCT_ADDR_RUNTIME = 15  # isWithRuntime
 
 PRODUCT_TYPE_NAMES: dict[int, str] = {
     0: "ExternalVenetianBlind",
@@ -101,8 +101,8 @@ PRODUCT_TYPE_NAMES: dict[int, str] = {
 # when the per-device isWithBlinds flag in Block 37 is unreadable (motor asleep,
 # old firmware, etc).
 PRODUCT_TYPES_WITH_TILT: set[int] = {
-    0,   # ExternalVenetianBlind
-    1,   # InternalVenetianBlind
+    0,  # ExternalVenetianBlind
+    1,  # InternalVenetianBlind
     14,  # VerticalLouvreBlind
 }
 
@@ -376,7 +376,9 @@ def encode_cmd(cmd: str, snr, params: dict) -> dict:
         elif isinstance(data, str):
             data = bytes.fromhex(data)
         elif not isinstance(data, (bytes, bytearray)):
-            raise TypeError(f"mb8Write data must be bytes/int/list/hex-str, got {type(data)}")
+            raise TypeError(
+                f"mb8Write data must be bytes/int/list/hex-str, got {type(data)}"
+            )
         result["expect"]["msg_type"] = "mb8WriteResponse"
         result["expect"]["snr"] = snr_hex
         result["cmd"] = (

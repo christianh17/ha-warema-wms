@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-05-28
+
+### Added
+- **Weather station sensors.** WMS weather stations (device type `06`) broadcast
+  their readings periodically over the radio network. The integration now
+  decodes those broadcasts and exposes them as Home Assistant entities:
+  - Temperature (`°C`, device class `temperature`)
+  - Wind speed (`m/s`, device class `wind_speed`)
+  - Brightness (`lx`, device class `illuminance`)
+  - Rain (binary sensor, device class `moisture`)
+
+  Weather stations are not part of the device-selection wizard because they
+  transmit unsolicited; their entities are created **automatically** the first
+  time a broadcast is received (typically within a few minutes of startup), each
+  grouped under its own "Weather station &lt;SNR&gt;" device.
+- **Identify button.** Every cover now has an *Identify* button
+  (`ButtonDeviceClass.IDENTIFY`) that sends a wave/beckon request, making the
+  blind briefly move so you can tell which physical device an entity controls.
+- Entity names are now provided through Home Assistant translation keys, with
+  **German translations** (`translations/de.json`) for the new weather and
+  identify entities (Temperatur, Windgeschwindigkeit, Helligkeit, Regen,
+  Identifizieren).
+
+### Notes
+- The brightness value is decoded empirically from the weather broadcast and is
+  exposed in lux; the exact magnitude may need calibration against your station.
+
 ## [1.2.0] - 2026-05-28
 
 ### Added
