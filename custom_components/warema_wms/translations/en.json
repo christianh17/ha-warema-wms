@@ -100,22 +100,20 @@
       },
       "firmware_params": {
         "title": "Warema WMS – Motor Firmware Parameters",
-        "description": "Current values read from the motor:\n\n| Parameter | Current |\n|-----------|---------|\n| Position bei manueller Bedienung | {current_manual_position} |\n| Winkel bei manueller Bedienung | {current_manual_angle} |\n| Haltezeit | {current_manual_dwell_time} |\n| Komfortposition | {current_comfort_position} |\n| Komfortposition Winkel | {current_comfort_angle} |\n| Status Abwesend | {current_is_absent} |\n\nChange any field below; unchanged fields are left as-is on the device.",
+        "description": "Current values read from the motor:\n\n| Parameter | Current |\n|-----------|---------|\n| Position bei manueller Bedienung | {current_manual_position} |\n| Winkel bei manueller Bedienung | {current_manual_angle} |\n| Haltezeit | {current_manual_dwell_time} |\n| Komfortposition | {current_comfort_position} |\n| Komfortposition Winkel | {current_comfort_angle} |\n\nChange any field below; unchanged fields are left as-is on the device.",
         "data": {
           "manual_position": "Position bei manueller Bedienung (%)",
           "manual_angle": "Winkel bei manueller Bedienung (°)",
           "manual_dwell_time": "Haltezeit (raw)",
           "comfort_position": "Komfortposition (%)",
-          "comfort_angle": "Komfortposition Winkel (°)",
-          "is_absent": "Status Abwesend"
+          "comfort_angle": "Komfortposition Winkel (°)"
         },
         "data_description": {
           "manual_position": "0–100. How far down the motor goes when you press DOWN on the remote.",
           "manual_angle": "0–75. Slat tilt angle reached after the position is set.",
           "manual_dwell_time": "0–254. Currently uninterpreted raw byte (likely minutes – TBC).",
           "comfort_position": "0–100. Position reached when the comfort scene (scene0) is invoked.",
-          "comfort_angle": "0–75. Slat angle for the comfort scene.",
-          "is_absent": "Activates the 'absent' state on the motor (Statusabwesend)."
+          "comfort_angle": "0–75. Slat angle for the comfort scene."
         }
       }
     },

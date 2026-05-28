@@ -111,6 +111,10 @@ Plug in your Warema WMS USB Stick (FTDI FT232R) and Home Assistant will notify y
 
 ## 🎯 Supported Devices
 
+### Actuator hardware
+
+Any motor reachable from one of these WMS actuators:
+
 | Type | Description |
 |------|-------------|
 | **20** | Actuator UP |
@@ -118,10 +122,33 @@ Plug in your Warema WMS USB Stick (FTDI FT232R) and Home Assistant will notify y
 | **25** | Radio motor |
 | **2E** | Actuator 230V UP |
 
+### Product types (auto-detected per device)
+
+The integration reads the motor's `productType` (Block 37) on first connect
+and exposes it as the right Home Assistant cover device class. Slat tilt
+controls are enabled automatically when the motor reports that it has slats.
+
+| WMS product | HA device class | Tilt |
+|-------------|-----------------|------|
+| ExternalVenetianBlind (Raffstore) | `blind` | ✓ |
+| InternalVenetianBlind | `blind` | ✓ |
+| VerticalLouvreBlind (Vertikallamellen) | `blind` | ✓ |
+| RollerShutter (Rollladen) | `shutter` | – |
+| Awning, FacadeAwning, DroparmAwning, VerticalAwning, ConservatoryAwning, PergolaAwning, AwningOneValance, AwningTwoValances, Markisolette, SunSail, Valance | `awning` | – |
+| PleatedBlindInside (Plissee), RollerBlindInside | `shade` | – |
+| Window | `window` | – |
+
+Unknown or unrecognised product IDs fall through to `blind`. If the motor is
+asleep when first read, the integration falls back to the previous
+hardware-based tilt heuristic (tilt only for Actuator UP / 230V UP) and
+retries the detection on the next reload.
+
 ## 🏠 Hardware Requirements
 
 - **Warema WMS USB Stick** (FTDI FT232R, USB VID: 0403, PID: 6001)
-- **Supported blinds:** Type 20, 21, 25, or 2E actuators
+- **Supported blinds:** any motor driven by an Actuator UP (20), Plug Receiver
+  (21), Radio Motor (25) or Actuator 230V UP (2E) — covering the full Warema
+  range from Raffstoren and roller shutters to all awning families
 - **Home Assistant:** 2023.1.0 or later
 - **Python:** 3.9+
 
@@ -140,7 +167,11 @@ Each blind appears as a `cover` entity with:
 | **Close** | — | Move to fully closed |
 | **Stop** | — | Stop current movement |
 
-> **Tilt availability:** Tilt (slat angle) is only exposed for **Actuator UP (type 20)** and **Actuator 230V UP (type 2E)**, which drive slatted blinds (Raffstoren). Plug receivers (21) and radio motors (25) typically drive awnings/roller shutters without slats, so no tilt control is shown for them.
+> **Tilt availability:** Tilt (slat angle) is auto-detected per device from
+> the motor's own `isWithBlinds` flag (Block 37). Raffstoren / venetian blinds
+> get tilt controls; awnings and roller shutters do not — regardless of which
+> actuator hardware drives them. See *Supported Devices* above for the full
+> product-type table.
 
 ### Sensor Entities
 - **Motor SNR** — Serial number (6-digit hex)
