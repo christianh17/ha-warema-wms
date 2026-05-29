@@ -198,12 +198,30 @@ MOTOR_PARAM_BLOCK = 38
 # Block addresses (from the  PList for ExternalVenetianBlind +
 # wms-plug-receiver-v3, see the protocol notes).
 ADDR_COMMON_IS_ABSENT = 1
+ADDR_COMFORT_AUTO_ENABLED = 2  # common.isComfortAutoEnabled
 ADDR_MANUAL_POSITION = 301
 ADDR_MANUAL_SLAT_ANGLE = 302
 ADDR_MANUAL_DUMMY = 303
 ADDR_MANUAL_DWELL_TIME = 305
 ADDR_COMFORT_POSITION = 307  # scene.scene0.position
 ADDR_COMFORT_SLAT_ANGLE = 308  # scene.scene0.slatAngle
+ADDR_ABSENT_POSITION = 439  # scene.absent.position
+ADDR_ABSENT_SLAT_ANGLE = 440  # scene.absent.slatAngle
+ADDR_RUN_TIME_UP = 463  # productSettings.runTimeUp (seconds)
+ADDR_RUN_TIME_DOWN = 464  # productSettings.runTimeDown (seconds)
+# addrs 465-468: padding / unknown
+ADDR_CALIBRATION_UP = 469  # productSettings.calibrationTimeUp (seconds)
+ADDR_CALIBRATION_DOWN = 470  # productSettings.calibrationTimeDown (seconds)
+ADDR_TILTING_TIME = 471  # productSettings.tiltingTime (× 0.2 s)
+ADDR_MIN_ANGLE = 472  # productSettings.minAngle (byte - 127 = degrees)
+ADDR_MAX_ANGLE = 473  # productSettings.maxAngle
+ADDR_TILTING_STEPS = 474  # productSettings.tiltingSteps
+ADDR_MOTOR_ROTATION = 475  # productSettings.motorRotation (0=normal, 1=reversed)
+
+# Block 81: firmware / hardware info (read-only; exact byte offsets TBD empirically)
+SW_INFO_BLOCK = 81
+SW_INFO_ADDR = 0
+SW_INFO_SIZE = 32
 
 
 def manual_position_to_byte(pct: int) -> int:
@@ -230,6 +248,34 @@ def slat_angle_from_byte(byte: int) -> Optional[int]:
     return byte - 127
 
 
+def product_angle_from_byte(byte: int) -> Optional[int]:
+    """Decode signed-angle byte (0..254) -> degrees (-127..+127); 0xFF = None.
+
+    Used for productSettings.minAngle / maxAngle where the range is -75..+75°
+    and the neutral position (0°) is encoded as 127.
+    """
+    if byte == 0xFF:
+        return None
+    return byte - 127
+
+
+def product_angle_to_byte(degrees: int) -> int:
+    """Encode degrees (-127..+127) -> byte (0..254)."""
+    return max(0, min(254, degrees + 127))
+
+
+def tilting_time_from_byte(byte: int) -> Optional[float]:
+    """Decode tiltingTime byte -> seconds (step 0.2 s); 0xFF = None."""
+    if byte == 0xFF:
+        return None
+    return round(byte * 0.2, 1)
+
+
+def tilting_time_to_byte(seconds: float) -> int:
+    """Encode seconds -> tiltingTime byte (step 0.2 s, clipped to 0..254)."""
+    return max(0, min(254, round(seconds / 0.2)))
+
+
 @dataclass
 class MotorParameters:
     """Firmware parameters of a Warema motor/actuator (Block 38).
@@ -241,7 +287,7 @@ class MotorParameters:
     # manualOperation.settingDown
     manual_position: Optional[int] = None  # %, 0..100
     manual_angle: Optional[int] = None  # degrees, 0..75
-    manual_dwell_time: Optional[int] = None  # raw, 0..254 (unit TBC: minutes?)
+    manual_dwell_time: Optional[int] = None  # raw, 0..254
 
     # scene.scene0 = "Komfortposition" in the WMS Studio Pro UI
     comfort_position: Optional[int] = None  # %, 0..100
@@ -249,6 +295,28 @@ class MotorParameters:
 
     # common.isAbsent = "Status Abwesend" toggle
     is_absent: Optional[bool] = None
+
+    # common.isComfortAutoEnabled = "Komfortfunktionen"
+    comfort_auto_enabled: Optional[bool] = None
+
+    # scene.absent = "Position/Winkel bei Status Abwesend"
+    absent_position: Optional[int] = None  # %, 0..100
+    absent_angle: Optional[int] = None  # degrees, 0..75
+
+    # productSettings
+    run_time_up: Optional[int] = None  # seconds, 0..254
+    run_time_down: Optional[int] = None  # seconds, 0..254
+    calibration_up: Optional[int] = None  # seconds, 0..254
+    calibration_down: Optional[int] = None  # seconds, 0..254
+    tilting_time: Optional[float] = None  # seconds (step 0.2), 0..50.8
+    min_angle: Optional[int] = None  # degrees, -127..+127 (typically -75..0)
+    max_angle: Optional[int] = None  # degrees, -127..+127 (typically 0..+75)
+    tilting_steps: Optional[int] = None  # count, 0..254
+    motor_rotation: Optional[bool] = None  # False=normal, True=reversed
+
+    # Block 81: read-only firmware/hardware info (never written to device)
+    software_version: Optional[str] = None
+    device_type_name: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

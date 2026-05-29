@@ -95,30 +95,102 @@
         "title": "Warema WMS – Configure Motor Parameters",
         "description": "These are persistent on-device settings stored in the motor itself. They survive power cycles and also apply when you operate the motor via the handheld remote. Pick the device whose firmware parameters you want to read and change.\n\n{device_count} configurable device(s) available.",
         "data": {
-          "device": "Device"
+          "device": "Device",
+          "copy_from": "Load values from"
+        },
+        "data_description": {
+          "copy_from": "Optionally load the current parameters of another blind; defaults to the selected device's own values."
         }
       },
       "firmware_params": {
-        "title": "Warema WMS – Motor Firmware Parameters",
-        "description": "Current values read from the motor:\n\n| Parameter | Current |\n|-----------|---------|\n| Position bei manueller Bedienung | {current_manual_position} |\n| Winkel bei manueller Bedienung | {current_manual_angle} |\n| Haltezeit | {current_manual_dwell_time} |\n| Komfortposition | {current_comfort_position} |\n| Komfortposition Winkel | {current_comfort_angle} |\n\nChange any field below; unchanged fields are left as-is on the device.",
-        "data": {
-          "manual_position": "Position bei manueller Bedienung (%)",
-          "manual_angle": "Winkel bei manueller Bedienung (°)",
-          "manual_dwell_time": "Haltezeit (raw)",
-          "comfort_position": "Komfortposition (%)",
-          "comfort_angle": "Komfortposition Winkel (°)"
-        },
-        "data_description": {
-          "manual_position": "0–100. How far down the motor goes when you press DOWN on the remote.",
-          "manual_angle": "0–75. Slat tilt angle reached after the position is set.",
-          "manual_dwell_time": "0–254. Currently uninterpreted raw byte (likely minutes – TBC).",
-          "comfort_position": "0–100. Position reached when the comfort scene (scene0) is invoked.",
-          "comfort_angle": "0–75. Slat angle for the comfort scene."
+        "title": "Motor parameters\n{device_name}",
+        "description": "Only changed fields are written to the motor.",
+        "sections": {
+          "manual": {
+            "name": "Manual operation",
+            "data": {
+              "manual_position": "Position on manual operation",
+              "manual_angle": "Slat angle on manual operation",
+              "manual_dwell_time": "Dwell time"
+            },
+            "data_description": {
+              "manual_position": "Target position (0–100 %) when the manual down button on the handheld is pressed; 0 = fully open, 100 = fully closed.",
+              "manual_angle": "Slat angle (0–75 °) set after reaching the manual position; 0 = horizontal, 75 = fully closed.",
+              "manual_dwell_time": "Wait time (0–254) before the slats are tilted after manual positioning."
+            }
+          },
+          "comfort": {
+            "name": "Comfort",
+            "data": {
+              "comfort_position": "Comfort position",
+              "comfort_angle": "Comfort slat angle",
+              "comfort_auto_enabled": "Comfort automatics"
+            },
+            "data_description": {
+              "comfort_position": "Target position (0–100 %) of the comfort scene recalled with the comfort button on the handheld.",
+              "comfort_angle": "Slat angle (0–75 °) of the comfort scene; negative values tilt inward, positive outward.",
+              "comfort_auto_enabled": "Enables or disables the sensor automatics, e.g. sun and wind automation on the handheld."
+            }
+          },
+          "absent": {
+            "name": "Away status",
+            "data": {
+              "absent_position": "Position on Away status",
+              "absent_angle": "Slat angle on Away status"
+            },
+            "data_description": {
+              "absent_position": "Target position (0–100 %) when the Away status is active; typically 95 % for maximum protection.",
+              "absent_angle": "Slat angle (0–75 °) when the Away status is active; typically 75 ° for fully closed."
+            }
+          },
+          "travel": {
+            "name": "Run times & calibration",
+            "data": {
+              "run_time_up": "Run time up",
+              "run_time_down": "Run time down",
+              "calibration_up": "Calibration up",
+              "calibration_down": "Calibration down"
+            },
+            "data_description": {
+              "run_time_up": "Seconds (0–254) for a full travel from the bottom to the top end stop; must match the actual installation height.",
+              "run_time_down": "Seconds (0–254) for a full downward travel; should be roughly equal to the run time up.",
+              "calibration_up": "Extra motor run time in seconds (0–254) after reaching the top end stop for accurate referencing; typically 3 s.",
+              "calibration_down": "Extra motor run time in seconds (0–254) after reaching the bottom end stop; typically 1 s."
+            }
+          },
+          "slats": {
+            "name": "Slats (venetian blind)",
+            "data": {
+              "tilting_time": "Tilting time",
+              "min_angle": "Minimum slat angle",
+              "max_angle": "Maximum slat angle",
+              "tilting_steps": "Tilting steps per rotation"
+            },
+            "data_description": {
+              "tilting_time": "Seconds (0–50.8, step 0.2 s) for a full 180° slat rotation from one end to the other; typically 1.6 s.",
+              "min_angle": "Lowest allowed slat position in degrees (-127–+127); prevents over-tilting inward; typically -75 °.",
+              "max_angle": "Highest allowed slat position in degrees (-127–+127); prevents over-tilting outward; typically +75 °.",
+              "tilting_steps": "Number of intermediate steps (0–254) per full slat rotation; more steps give finer angle resolution; typically 10."
+            }
+          },
+          "misc": {
+            "name": "Other",
+            "data": {
+              "motor_rotation": "Reverse motor direction"
+            },
+            "data_description": {
+              "motor_rotation": "Reverses the motor rotation direction; enable if the blind moves up on a Down command or vice versa."
+            }
+          }
         }
       }
     },
+    "progress": {
+      "loading": "Loading parameters from {source_name} … (this can take a few seconds)"
+    },
     "error": {
-      "write_failed": "Writing parameters to the motor failed. The 2-phase transfer-block protocol could not be completed - the motor may be unreachable, asleep, or in use. Wake it via the handheld remote and try again. Check the Home Assistant log for per-step details."
+      "write_failed": "Writing parameters to the motor failed. The motor may be unreachable, asleep, or in use. Wake it via the handheld remote and try again. Check the Home Assistant log for per-step details.",
+      "ref_unreachable": "Could not read the values from the source blind; the selected device's own current values were loaded instead. The motor may be unreachable or asleep."
     },
     "abort": {
       "not_loaded": "The integration is not loaded. Make sure the WMS stick is connected and the integration is running, then try again.",

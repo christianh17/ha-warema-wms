@@ -1,4 +1,130 @@
 {
+  "options": {
+    "step": {
+      "init": {
+        "title": "Warema WMS – Optionen",
+        "description": "Was möchtest du tun?",
+        "menu_options": {
+          "rescan": "Nach neuen Geräten suchen",
+          "configure_firmware": "Motorparameter konfigurieren"
+        }
+      },
+      "select_devices": {
+        "title": "Warema WMS – Geräte hinzufügen",
+        "description": "Es wurden {device_count} neue steuerbare Rollladen/Jalousien im Netzwerk gefunden, die noch nicht in Home Assistant sind. Bitte auswählen welche hinzugefügt werden sollen.",
+        "data": {
+          "selected_devices": "Hinzuzufügende Geräte"
+        }
+      },
+      "configure_firmware": {
+        "title": "Warema WMS – Motorparameter konfigurieren",
+        "description": "Dies sind dauerhaft im Motor gespeicherte Einstellungen. Sie bleiben auch nach einem Stromausfall erhalten und gelten auch bei Bedienung über den Handsender. Bitte Gerät auswählen dessen Parameter gelesen und geändert werden sollen.\n\n{device_count} konfigurierbares Gerät(e) verfügbar.",
+        "data": {
+          "device": "Gerät",
+          "copy_from": "Werte laden von"
+        },
+        "data_description": {
+          "copy_from": "Optional die aktuellen Parameter einer anderen Store laden; Standard sind die Werte des gewählten Geräts."
+        }
+      },
+      "firmware_params": {
+        "title": "Motorparameter\n{device_name}",
+        "description": "Nur geänderte Felder werden an den Motor übertragen.",
+        "sections": {
+          "manual": {
+            "name": "Manuelle Bedienung",
+            "data": {
+              "manual_position": "Position bei manueller Bedienung",
+              "manual_angle": "Lamellenwinkel bei manueller Bedienung",
+              "manual_dwell_time": "Haltezeit"
+            },
+            "data_description": {
+              "manual_position": "Zielposition (0–100 %) bei Betätigung der manuellen Abwärts-Taste am Handsender; 0 = vollständig geöffnet, 100 = vollständig geschlossen.",
+              "manual_angle": "Lamellenwinkel (0–75 °) der nach Erreichen der manuellen Position eingestellt wird; 0 = waagerecht, 75 = vollständig geschlossen.",
+              "manual_dwell_time": "Wartezeit (0–254) bevor die Lamellen nach der manuellen Positionierung ausgerichtet werden."
+            }
+          },
+          "comfort": {
+            "name": "Komfort",
+            "data": {
+              "comfort_position": "Komfortposition",
+              "comfort_angle": "Lamellenwinkel Komfortposition",
+              "comfort_auto_enabled": "Komfortfunktionen"
+            },
+            "data_description": {
+              "comfort_position": "Zielposition (0–100 %) der Komfortszene, die mit der Komfort-Taste am Handsender abgerufen wird.",
+              "comfort_angle": "Lamellenwinkel (0–75 °) der Komfortszene; negative Werte kippen nach innen, positive nach außen.",
+              "comfort_auto_enabled": "Schaltet die sensorgesteuerte Automatik ein oder aus, z. B. Sonnen- und Windautomat am Handsender."
+            }
+          },
+          "absent": {
+            "name": "Status Abwesend",
+            "data": {
+              "absent_position": "Position bei Status Abwesend",
+              "absent_angle": "Lamellenwinkel bei Status Abwesend"
+            },
+            "data_description": {
+              "absent_position": "Zielposition (0–100 %) wenn der Status Abwesend aktiv ist; typisch 95 % für maximalen Schutz.",
+              "absent_angle": "Lamellenwinkel (0–75 °) bei aktivem Status Abwesend; typisch 75 ° für vollständig geschlossen."
+            }
+          },
+          "travel": {
+            "name": "Laufzeiten & Kalibrierung",
+            "data": {
+              "run_time_up": "Laufzeit Hoch",
+              "run_time_down": "Laufzeit Tief",
+              "calibration_up": "Kalibrierung Hoch",
+              "calibration_down": "Kalibrierung Tief"
+            },
+            "data_description": {
+              "run_time_up": "Sekunden (0–254) für eine vollständige Fahrt vom unteren zum oberen Endanschlag; muss an die tatsächliche Einbauhöhe angepasst werden.",
+              "run_time_down": "Sekunden (0–254) für eine vollständige Abwärtsfahrt; sollte annähernd gleich der Laufzeit Hoch sein.",
+              "calibration_up": "Zusätzliche Motorlaufzeit in Sekunden (0–254) nach Erreichen des oberen Endanschlags für präzise Referenzierung; typisch 3 s.",
+              "calibration_down": "Zusätzliche Motorlaufzeit in Sekunden (0–254) nach Erreichen des unteren Endanschlags; typisch 1 s."
+            }
+          },
+          "slats": {
+            "name": "Lamellen (Raffstore)",
+            "data": {
+              "tilting_time": "Wendezeit",
+              "min_angle": "Minimaler Lamellenwinkel",
+              "max_angle": "Maximaler Lamellenwinkel",
+              "tilting_steps": "Wendeschritte pro Wendung"
+            },
+            "data_description": {
+              "tilting_time": "Sekunden (0–50,8, Schrittweite 0,2 s) für eine vollständige 180°-Lamellenrotation von einer Endlage zur anderen; typisch 1,6 s.",
+              "min_angle": "Unterste erlaubte Lamellenstellung in Grad (-127–+127); verhindert Überkippen nach innen; typisch -75 °.",
+              "max_angle": "Oberste erlaubte Lamellenstellung in Grad (-127–+127); verhindert Überkippen nach außen; typisch +75 °.",
+              "tilting_steps": "Anzahl der Zwischenstufen (0–254) pro vollständiger Lamellenrotation; mehr Schritte ergeben feinere Winkelauflösung; typisch 10."
+            }
+          },
+          "misc": {
+            "name": "Sonstiges",
+            "data": {
+              "motor_rotation": "Motordrehrichtung umkehren"
+            },
+            "data_description": {
+              "motor_rotation": "Kehrt die Drehrichtung des Motors um; aktivieren wenn die Jalousie beim Befehl Runter hochfährt oder umgekehrt."
+            }
+          }
+        }
+      }
+    },
+    "progress": {
+      "loading": "Parameter werden von {source_name} geladen … (kann einige Sekunden dauern)"
+    },
+    "error": {
+      "write_failed": "Schreiben der Parameter auf den Motor fehlgeschlagen. Der Motor ist möglicherweise nicht erreichbar oder wird gerade verwendet. Motor über den Handsender aufwecken und erneut versuchen.",
+      "ref_unreachable": "Die Werte der Quell-Store konnten nicht gelesen werden; es wurden stattdessen die aktuellen Werte dieses Geräts geladen. Der Motor ist möglicherweise nicht erreichbar oder schläft."
+    },
+    "abort": {
+      "not_loaded": "Die Integration ist nicht geladen. Sicherstellen dass der WMS Stick verbunden und die Integration aktiv ist.",
+      "no_new_devices": "Keine neuen Geräte im Netzwerk gefunden. Sicherstellen dass neue Motoren im WMS-Netzwerk angemeldet sind und einen Referenzlauf (vollständiges Auf-/Zufahren) durchgeführt haben.",
+      "no_configurable_devices": "Keine Geräte in dieser Integration unterstützen die Motorparameter-Konfiguration. Nur Aktor AUF (Typ 20), Zwischenstecker (Typ 21) und Aktor 230V AUF (Typ 2E) werden unterstützt.",
+      "invalid_device": "Ausgewähltes Gerät nicht erkannt.",
+      "cannot_read_params": "Parameter vom Motor konnten nicht gelesen werden. Motor über den Handsender aufwecken und erneut versuchen."
+    }
+  },
   "entity": {
     "sensor": {
       "weather_temperature": { "name": "Temperatur" },

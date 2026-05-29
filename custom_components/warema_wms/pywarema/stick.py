@@ -31,27 +31,46 @@ from typing import Callable, Dict, List, Optional
 import serial
 
 from .protocol import (
+    ADDR_ABSENT_POSITION,
+    ADDR_ABSENT_SLAT_ANGLE,
+    ADDR_CALIBRATION_DOWN,
+    ADDR_CALIBRATION_UP,
+    ADDR_COMFORT_AUTO_ENABLED,
     ADDR_COMFORT_POSITION,
     ADDR_COMFORT_SLAT_ANGLE,
     ADDR_COMMON_IS_ABSENT,
     ADDR_MANUAL_DWELL_TIME,
     ADDR_MANUAL_POSITION,
     ADDR_MANUAL_SLAT_ANGLE,
+    ADDR_MAX_ANGLE,
+    ADDR_MIN_ANGLE,
+    ADDR_MOTOR_ROTATION,
+    ADDR_RUN_TIME_DOWN,
+    ADDR_RUN_TIME_UP,
+    ADDR_TILTING_STEPS,
+    ADDR_TILTING_TIME,
     BLIND_DEVICE_TYPES,
     MOTOR_PARAM_BLOCK,
     PRODUCT_ADDR,
     PRODUCT_BLOCK,
     PRODUCT_TYPES_WITH_TILT,
+    SW_INFO_ADDR,
+    SW_INFO_BLOCK,
+    SW_INFO_SIZE,
     MotorParameters,
     decode_frame,
     encode_cmd,
     manual_position_from_byte,
     manual_position_to_byte,
+    product_angle_from_byte,
+    product_angle_to_byte,
     product_type_name,
     slat_angle_from_byte,
     slat_angle_to_byte,
     snr_hex_to_num,
     snr_num_to_hex,
+    tilting_time_from_byte,
+    tilting_time_to_byte,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,6 +94,9 @@ DEFAULT_RETRY = -1  # -1 = no retry
 # repeats anyway, so a single retry is enough. This keeps an unreachable motor
 # from burning ~3 s of serial airtime (6 attempts) every cycle.
 POS_POLL_RETRY = 1
+
+# Size of the persistent motor-parameter block (block 38, addrs 0..495).
+BLOCK_38_SIZE = 496
 
 
 @dataclass
@@ -561,13 +583,17 @@ class WmsStick:
         threading.Timer(DELAY_MSG_PROC, self._process_queue).start()
 
     def read_motor_parameters(
-        self, blind_id, timeout: float = 5.0
+        self, blind_id, timeout: float = 8.0
     ) -> Optional[MotorParameters]:
         """Read the persistent firmware parameters of an actuator (block 38).
 
-        Synchronously reads manualOperation.settingDown (addrs 301..305),
-        scene.scene0 (=Komfortposition, addrs 307..308) and common.isAbsent
-        (addr 1) in three MB8 reads.
+        Issues seven parallel MB8 reads covering:
+          - manualOperation.settingDown (addrs 301..305)
+          - scene.scene0 / Komfortposition (addrs 307..308)
+          - common.isAbsent (addr 1)
+          - common.isComfortAutoEnabled (addr 2)
+          - scene.absent (addrs 439..440)
+          - productSettings (addrs 463..475, 13 bytes)
 
         Returns:
             A populated ``MotorParameters`` on success, or ``None`` if any
@@ -583,7 +609,7 @@ class WmsStick:
 
         params = MotorParameters()
         done = threading.Event()
-        remaining = [3]
+        remaining = [6]
         failed = [False]
 
         def make_cb(setter):
@@ -616,9 +642,34 @@ class WmsStick:
                 params.comfort_position = manual_position_from_byte(data[0])
                 params.comfort_angle = slat_angle_from_byte(data[1])
 
-        def set_absent(data: bytes) -> None:
+        def set_is_absent(data: bytes) -> None:
             if len(data) >= 1:
                 params.is_absent = None if data[0] == 0xFF else bool(data[0])
+
+        def set_comfort_auto(data: bytes) -> None:
+            if len(data) >= 1:
+                params.comfort_auto_enabled = None if data[0] == 0xFF else bool(data[0])
+
+        def set_absent_scene(data: bytes) -> None:
+            if len(data) >= 2:
+                params.absent_position = manual_position_from_byte(data[0])
+                params.absent_angle = slat_angle_from_byte(data[1])
+
+        def set_product_settings(data: bytes) -> None:
+            # 13 bytes starting at ADDR_RUN_TIME_UP (463):
+            # [0] runTimeUp, [1] runTimeDown, [2-5] padding/unknown,
+            # [6] calibrationUp, [7] calibrationDown, [8] tiltingTime,
+            # [9] minAngle, [10] maxAngle, [11] tiltingSteps, [12] motorRotation
+            if len(data) >= 13:
+                params.run_time_up = None if data[0] == 0xFF else int(data[0])
+                params.run_time_down = None if data[1] == 0xFF else int(data[1])
+                params.calibration_up = None if data[6] == 0xFF else int(data[6])
+                params.calibration_down = None if data[7] == 0xFF else int(data[7])
+                params.tilting_time = tilting_time_from_byte(data[8])
+                params.min_angle = product_angle_from_byte(data[9])
+                params.max_angle = product_angle_from_byte(data[10])
+                params.tilting_steps = None if data[11] == 0xFF else int(data[11])
+                params.motor_rotation = None if data[12] == 0xFF else bool(data[12])
 
         self.mb8_read(
             blind.snr_hex,
@@ -639,7 +690,28 @@ class WmsStick:
             block=MOTOR_PARAM_BLOCK,
             addr=ADDR_COMMON_IS_ABSENT,
             size=1,
-            on_complete=make_cb(set_absent),
+            on_complete=make_cb(set_is_absent),
+        )
+        self.mb8_read(
+            blind.snr_hex,
+            block=MOTOR_PARAM_BLOCK,
+            addr=ADDR_COMFORT_AUTO_ENABLED,
+            size=1,
+            on_complete=make_cb(set_comfort_auto),
+        )
+        self.mb8_read(
+            blind.snr_hex,
+            block=MOTOR_PARAM_BLOCK,
+            addr=ADDR_ABSENT_POSITION,
+            size=2,
+            on_complete=make_cb(set_absent_scene),
+        )
+        self.mb8_read(
+            blind.snr_hex,
+            block=MOTOR_PARAM_BLOCK,
+            addr=ADDR_RUN_TIME_UP,
+            size=13,
+            on_complete=make_cb(set_product_settings),
         )
 
         if not done.wait(timeout):
@@ -653,34 +725,73 @@ class WmsStick:
                 blind.snr_hex,
             )
             return None
+        _LOGGER.debug(
+            "read_motor_parameters %s: run_up=%s run_dn=%s tilt_t=%s min_ang=%s "
+            "max_ang=%s steps=%s motor_rot=%s cal_up=%s cal_dn=%s "
+            "absent_pos=%s absent_ang=%s comfort_auto=%s",
+            blind.snr_hex,
+            params.run_time_up, params.run_time_down, params.tilting_time,
+            params.min_angle, params.max_angle, params.tilting_steps,
+            params.motor_rotation, params.calibration_up, params.calibration_down,
+            params.absent_position, params.absent_angle, params.comfort_auto_enabled,
+        )
         return params
 
-    # Transfer-block protocol constants (verified against WMS Studio Pro live
-    # trace, see the protocol notes section 9). The motor only accepts persistent
-    # writes to "isPartOfParamProcess" parameters via this 2-phase flow:
-    # write 8 data chunks + control/trailer bytes to block 8, then commit at
-    # 0x01F7 to trigger an atomic copy block 8 -> block 38.
-    _TB_CHUNK_STARTS = (0x0007, 0x004A, 0x008D, 0x00D0, 0x0113, 0x0156, 0x0199, 0x01DC)
-    _TB_DATA_BYTES_PER_FULL_CHUNK = (
-        67  # 7 full chunks of 67 + 1 chunk of 27 = 496 bytes
-    )
-    _TB_DATA_BYTES_LAST_CHUNK = 27
-    _TB_BLOCK_38_OFFSET = 8  # block_8_addr = block_38_addr + 8 (~90% match in trace)
-    _TB_BLOCK_38_SIZE = 496  # block 38 covers addrs 0..495
+    def read_block81_info(
+        self, blind_id, timeout: float = 3.0
+    ) -> tuple:
+        """Read firmware version and device type from Block 81 (read-only).
 
-    # Control writes that frame the chunk transfer. Order matters - this is
-    # exactly what WMS Studio Pro sends after the chunks (see trace
-    # 2026-05-28.txt, time window 09:13:01.5 - 09:13:01.9).
-    _TB_HEADER_ADDR = 0x0000
-    _TB_HEADER_DATA = bytes.fromhex("03010103")
-    _TB_TRAILER1_ADDR = 0x0007  # overwrites first 5 bytes of chunk 0
-    _TB_TRAILER1_DATA = bytes.fromhex("0401FF00FF")
-    _TB_TRAILER2_ADDR = (
-        0x0001  # overwrites addrs 0x0001-0x0007 (incl. last byte of trailer1)
-    )
-    _TB_TRAILER2_DATA = bytes.fromhex("06010400000200")
-    _TB_COMMIT_ADDR = 0x01F7
-    _TB_COMMIT_DATA = bytes.fromhex("0101")
+        Returns a ``(software_version, device_type_name)`` tuple.  Both values
+        may be ``None`` if the read fails or the device does not support Block 81.
+
+        The exact byte layout of Block 81 is not yet fully documented.  The raw
+        bytes are logged at INFO level so the correct offsets can be derived from
+        a known reference value (e.g. software_version "5930141007").
+        """
+        blind = self._get_blind(blind_id)
+        if not blind:
+            return None, None
+
+        data = self._mb8_read_sync(
+            blind.snr_hex,
+            block=SW_INFO_BLOCK,
+            addr=SW_INFO_ADDR,
+            size=SW_INFO_SIZE,
+            timeout=timeout,
+        )
+        if not data:
+            _LOGGER.info(
+                "read_block81_info: no data for %s (block 81 may not be supported)",
+                blind.snr_hex,
+            )
+            return None, None
+
+        _LOGGER.info("Block81 raw for %s: %s", blind.snr_hex, data.hex())
+
+        # Decode software version (dataTypeId 288): try to interpret as a
+        # 10-digit BCD number encoded in 5 bytes at offset 0, or as a 4-byte
+        # little-endian uint32.  After the first real test the correct decoder
+        # should replace these placeholders.
+        sw_ver: Optional[str] = None
+        dev_type: Optional[str] = None
+        try:
+            # Attempt BCD decode of first 5 bytes
+            bcd = data[:5].hex()
+            sw_ver = str(int(bcd))  # strips leading zeros from BCD string
+        except Exception:  # pylint: disable=broad-except
+            sw_ver = data[:5].hex() if len(data) >= 5 else None
+
+        try:
+            if len(data) >= 6:
+                dev_type = f"0x{data[5]:02X}"
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+        _LOGGER.info(
+            "read_block81_info %s: sw_ver=%s dev_type=%s", blind.snr_hex, sw_ver, dev_type
+        )
+        return sw_ver, dev_type
 
     def _mb8_read_sync(
         self, snr_hex, block: int, addr: int, size: int, timeout: float = 3.0
@@ -743,8 +854,8 @@ class WmsStick:
         chunk_size = 32
         max_retries_per_chunk = 3
         parts: list[bytes] = []
-        for offset in range(0, self._TB_BLOCK_38_SIZE, chunk_size):
-            n = min(chunk_size, self._TB_BLOCK_38_SIZE - offset)
+        for offset in range(0, BLOCK_38_SIZE, chunk_size):
+            n = min(chunk_size, BLOCK_38_SIZE - offset)
             data = None
             for attempt in range(max_retries_per_chunk):
                 data = self._mb8_read_sync(
@@ -780,140 +891,34 @@ class WmsStick:
         )
         return full
 
-    def _write_via_transfer_block(
-        self,
-        snr_hex,
-        block_38_data: bytes,
-        per_write_timeout: float = 3.0,
-    ) -> bool:
-        """Write the full block-38 snapshot via the 2-phase transfer-block protocol.
-
-        Sends 8 data chunks (block 8 addrs 0x0007/0x004A/0x008D/0x00D0/0x0113/
-        0x0156/0x0199/0x01DC), 1 header byte, 2 trailer writes, then the commit
-        byte at 0x01F7. See ``the protocol notes`` section 9 for the byte-level
-        protocol derived from the WMS Studio Pro trace.
-
-        Returns True if every wire write was acked, False otherwise. Does NOT
-        verify that the commit actually persisted - the caller should re-read
-        block 38 to confirm.
-        """
-        if len(block_38_data) != self._TB_BLOCK_38_SIZE:
-            raise ValueError(
-                f"block_38_data must be {self._TB_BLOCK_38_SIZE} bytes, got {len(block_38_data)}"
-            )
-
-        # Slice the 496-byte payload into 7 full chunks + 1 short chunk.
-        # Each chunk's WIRE payload is: 1 length-prefix byte (0x43 or 0x1B)
-        # followed by the chunk's data bytes from block_38_data. The next
-        # chunk's address overlaps by 1 byte with the previous chunk's last
-        # data byte - that's how WMS Studio Pro does it (motor firmware
-        # handles the overlap as a control marker).
-        src = 0
-        for i, chunk_addr in enumerate(self._TB_CHUNK_STARTS):
-            if i < len(self._TB_CHUNK_STARTS) - 1:
-                data_len = self._TB_DATA_BYTES_PER_FULL_CHUNK  # 67
-            else:
-                data_len = self._TB_DATA_BYTES_LAST_CHUNK  # 27
-            wire_payload = bytes([data_len]) + block_38_data[src : src + data_len]
-            ok = self._mb8_write_sync(
-                snr_hex,
-                block=8,
-                addr=chunk_addr,
-                data=wire_payload,
-                timeout=per_write_timeout,
-            )
-            if not ok:
-                _LOGGER.warning(
-                    "transfer_block: chunk %d write to block8/addr=0x%04X failed",
-                    i,
-                    chunk_addr,
-                )
-                return False
-            src += data_len
-        assert (
-            src == self._TB_BLOCK_38_SIZE
-        ), f"chunk slicing covered {src} bytes, expected 496"
-
-        # Header at 0x0000 (init transfer)
-        if not self._mb8_write_sync(
-            snr_hex,
-            block=8,
-            addr=self._TB_HEADER_ADDR,
-            data=self._TB_HEADER_DATA,
-            timeout=per_write_timeout,
-        ):
-            _LOGGER.warning("transfer_block: header write failed")
-            return False
-        # Read-back of addr 0x0000 (status check observed in trace, ignored value)
-        self._mb8_read_sync(
-            snr_hex,
-            block=8,
-            addr=self._TB_HEADER_ADDR,
-            size=1,
-            timeout=per_write_timeout,
-        )
-
-        # Trailer 1 at 0x0007 (5 bytes - overwrites first bytes of chunk 0)
-        if not self._mb8_write_sync(
-            snr_hex,
-            block=8,
-            addr=self._TB_TRAILER1_ADDR,
-            data=self._TB_TRAILER1_DATA,
-            timeout=per_write_timeout,
-        ):
-            _LOGGER.warning("transfer_block: trailer1 write failed")
-            return False
-        # Trailer 2 at 0x0001 (7 bytes - overwrites trailer1's last byte too)
-        if not self._mb8_write_sync(
-            snr_hex,
-            block=8,
-            addr=self._TB_TRAILER2_ADDR,
-            data=self._TB_TRAILER2_DATA,
-            timeout=per_write_timeout,
-        ):
-            _LOGGER.warning("transfer_block: trailer2 write failed")
-            return False
-
-        # Commit at 0x01F7 (triggers atomic copy block 8 -> block 38)
-        if not self._mb8_write_sync(
-            snr_hex,
-            block=8,
-            addr=self._TB_COMMIT_ADDR,
-            data=self._TB_COMMIT_DATA,
-            timeout=per_write_timeout,
-        ):
-            _LOGGER.warning("transfer_block: commit write failed")
-            return False
-        # Read-back of commit status (observed in trace).
-        self._mb8_read_sync(
-            snr_hex,
-            block=8,
-            addr=self._TB_COMMIT_ADDR,
-            size=1,
-            timeout=per_write_timeout,
-        )
-
-        _LOGGER.info("transfer_block: full flow completed for %s", snr_hex)
-        return True
-
     def write_motor_parameters(
         self,
         blind_id,
         params: MotorParameters,
         timeout: float = 30.0,
     ) -> bool:
-        """Write changed firmware parameters via the transfer-block protocol.
+        """Write changed firmware parameters via targeted single-byte writes.
 
         The flow is:
 
-          1. Read the full block-38 snapshot (496 bytes) from the device.
-          2. Patch the bytes for the user-requested changes.
-          3. Send 8 chunks + header + trailers + commit to block 8.
-          4. Read back block 38 and verify the patched bytes match expectations.
+          1. Read the full block-38 snapshot (496 bytes) from the device - used
+             only to log the old values, skip no-op writes, and confirm the motor
+             is reachable. The snapshot is NOT written back.
+          2. Build the list of (addr, byte) changes for the user-requested fields.
+          3. For each byte that actually differs, issue a direct MB8 write to
+             block 38 at that exact address (length-prefixed single byte).
+          4. Read back block 38 and verify each written byte.
 
         Only fields where the corresponding attribute is not ``None`` are
-        patched - everything else stays as-is on the device. The total
-        operation typically takes 5-10 seconds.
+        written - every other byte on the device is left completely untouched.
+
+        Earlier versions staged a full 496-byte snapshot into block 8 and
+        committed it atomically ("transfer block"). That path proved unreliable
+        on the user's firmware: a partial commit silently corrupted unrelated
+        bytes - notably ``motorRotation`` (addr 475) - which inverted a blind's
+        direction. Because the verify step only checked the requested addresses,
+        the corruption went undetected. Targeted writes touch only the intended
+        addresses, so a failure can never scramble unrelated parameters.
 
         Returns True on a verified successful write, False otherwise.
         """
@@ -936,8 +941,7 @@ class WmsStick:
             )
             return False
 
-        # 2. Build the patch.
-        patched = bytearray(current)
+        # 2. Build the list of requested changes.
         patches: list[tuple[str, int, int]] = []
         if params.manual_position is not None:
             patches.append(
@@ -983,6 +987,87 @@ class WmsStick:
             patches.append(
                 ("is_absent", ADDR_COMMON_IS_ABSENT, 1 if params.is_absent else 0)
             )
+        if params.comfort_auto_enabled is not None:
+            patches.append(
+                (
+                    "comfort_auto_enabled",
+                    ADDR_COMFORT_AUTO_ENABLED,
+                    1 if params.comfort_auto_enabled else 0,
+                )
+            )
+        if params.absent_position is not None:
+            patches.append(
+                (
+                    "absent_position",
+                    ADDR_ABSENT_POSITION,
+                    manual_position_to_byte(params.absent_position),
+                )
+            )
+        if params.absent_angle is not None:
+            patches.append(
+                (
+                    "absent_angle",
+                    ADDR_ABSENT_SLAT_ANGLE,
+                    slat_angle_to_byte(params.absent_angle),
+                )
+            )
+        if params.run_time_up is not None:
+            patches.append(
+                ("run_time_up", ADDR_RUN_TIME_UP, max(0, min(254, params.run_time_up)))
+            )
+        if params.run_time_down is not None:
+            patches.append(
+                (
+                    "run_time_down",
+                    ADDR_RUN_TIME_DOWN,
+                    max(0, min(254, params.run_time_down)),
+                )
+            )
+        if params.calibration_up is not None:
+            patches.append(
+                (
+                    "calibration_up",
+                    ADDR_CALIBRATION_UP,
+                    max(0, min(254, params.calibration_up)),
+                )
+            )
+        if params.calibration_down is not None:
+            patches.append(
+                (
+                    "calibration_down",
+                    ADDR_CALIBRATION_DOWN,
+                    max(0, min(254, params.calibration_down)),
+                )
+            )
+        if params.tilting_time is not None:
+            patches.append(
+                ("tilting_time", ADDR_TILTING_TIME, tilting_time_to_byte(params.tilting_time))
+            )
+        if params.min_angle is not None:
+            patches.append(
+                ("min_angle", ADDR_MIN_ANGLE, product_angle_to_byte(params.min_angle))
+            )
+        if params.max_angle is not None:
+            patches.append(
+                ("max_angle", ADDR_MAX_ANGLE, product_angle_to_byte(params.max_angle))
+            )
+        if params.tilting_steps is not None:
+            patches.append(
+                (
+                    "tilting_steps",
+                    ADDR_TILTING_STEPS,
+                    max(0, min(254, params.tilting_steps)),
+                )
+            )
+        if params.motor_rotation is not None:
+            patches.append(
+                (
+                    "motor_rotation",
+                    ADDR_MOTOR_ROTATION,
+                    1 if params.motor_rotation else 0,
+                )
+            )
+        # software_version and device_type_name are read-only – never patched.
 
         if not patches:
             _LOGGER.info(
@@ -990,30 +1075,57 @@ class WmsStick:
             )
             return True
 
+        # 3. Write each changed byte directly to block 38 at its own address.
+        #    A direct MB8 write to block 38 is length-prefixed: the data payload
+        #    is [0x01, value] (1 byte of data). Only bytes that actually differ
+        #    from the current value are written; identical bytes are skipped.
+        max_retries_per_write = 3
         for label, addr, new_byte in patches:
-            old_byte = patched[addr]
-            patched[addr] = new_byte
+            old_byte = current[addr]
+            if old_byte == new_byte:
+                _LOGGER.info(
+                    "  skip %s @addr=%d: already 0x%02X", label, addr, new_byte
+                )
+                continue
             _LOGGER.info(
-                "  patch %s @addr=%d: 0x%02X -> 0x%02X",
+                "  write %s @addr=%d: 0x%02X -> 0x%02X",
                 label,
                 addr,
                 old_byte,
                 new_byte,
             )
+            wrote = False
+            for attempt in range(max_retries_per_write):
+                if self._mb8_write_sync(
+                    blind.snr_hex,
+                    block=MOTOR_PARAM_BLOCK,
+                    addr=addr,
+                    data=bytes([0x01, new_byte]),
+                    timeout=3.0,
+                ):
+                    wrote = True
+                    break
+                _LOGGER.info(
+                    "  write %s @addr=%d: retry %d/%d",
+                    label,
+                    addr,
+                    attempt + 1,
+                    max_retries_per_write,
+                )
+            if not wrote:
+                _LOGGER.warning(
+                    "write_motor_parameters: write of %s @addr=%d failed for %s",
+                    label,
+                    addr,
+                    blind.snr_hex,
+                )
+                return False
 
-        # 3. Write via transfer block protocol.
-        if not self._write_via_transfer_block(blind.snr_hex, bytes(patched)):
-            _LOGGER.warning(
-                "write_motor_parameters: transfer-block write failed for %s",
-                blind.snr_hex,
-            )
-            return False
-
-        # 4. Verify by re-reading block 38 and checking the patched bytes.
+        # 4. Verify by re-reading block 38 and checking every requested byte.
         verify = self._read_full_block_38(blind.snr_hex, timeout=timeout)
         if verify is None:
             _LOGGER.warning(
-                "write_motor_parameters: post-commit read-back failed - cannot verify"
+                "write_motor_parameters: post-write read-back failed - cannot verify"
             )
             return False
         mismatches = []

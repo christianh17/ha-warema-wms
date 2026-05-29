@@ -158,7 +158,7 @@ retries the detection on the next reload.
 - **Supported blinds:** any motor driven by an Actuator UP (20), Plug Receiver
   (21), Radio Motor (25) or Actuator 230V UP (2E) — covering the full Warema
   range from Raffstoren and roller shutters to all awning families
-- **Home Assistant:** 2023.1.0 or later
+- **Home Assistant:** 2024.6.0 or later
 - **Python:** 3.9+
 
 ---
@@ -220,6 +220,30 @@ Go to the integration's **Configure** dialog to:
 - Re-scan the network
 - Add blinds that joined after initial setup
 - Existing entities keep their history
+
+---
+
+## 🛠️ Configuring Motor Parameters
+
+The **Configure** dialog → *Configure motor firmware parameters* lets you read and
+write the persistent settings stored in the motor itself (Block 38). These survive
+power cycles and also apply when you operate the blind via the handheld remote.
+
+**How it works:**
+1. Pick the **device** you want to configure.
+2. Optionally pick a **source** under *Load values from* to copy another blind's
+   settings — leave it on *current values of the device* to edit the device's own
+   values. Copying is optional.
+3. A short **loading** step reads the parameters over the radio network (this can
+   take a few seconds; the source motor must be awake).
+4. The form opens **pre-filled**. Numeric fields are input boxes (with %/s/° units),
+   grouped into collapsible sections (Manual operation, Comfort, Away status, Run
+   times & calibration, Slats, Other).
+5. **Submit** writes only the fields you changed — unchanged parameters are never
+   touched, using targeted single-byte writes that are read back and verified.
+
+> Only Actuator UP (20), Plug Receiver (21) and Actuator 230V UP (2E) expose these
+> parameters. Radio motors (25) use a different layout and are not listed.
 
 ---
 
@@ -296,6 +320,6 @@ This project is licensed under the **MIT License** — see `LICENSE` for details
 
 **Made with ❤️ for Home Assistant**
 
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2023.1+-blue?logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.6+-blue?logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![HACS](https://img.shields.io/badge/HACS-Community-orange)](https://hacs.xyz/)

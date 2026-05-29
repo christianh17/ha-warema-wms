@@ -16,11 +16,12 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import LIGHT_LUX, UnitOfSpeed, UnitOfTemperature
+from homeassistant.const import LIGHT_LUX, STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfSpeed, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -37,6 +38,12 @@ _LOGGER = logging.getLogger(__name__)
 _SENSOR_DEFS = [
     ("position", "WMS Position", "%", "mdi:window-shutter"),
     ("angle", "WMS Angle", None, "mdi:angle-acute"),
+]
+
+# (attr, name, icon) for read-only motor info sensors (Block 81, diagnostic).
+_MOTOR_INFO_SENSOR_DEFS = [
+    ("software_version", "Softwareversion", "mdi:chip"),
+    ("device_type_name", "Gerätetyp", "mdi:cog"),
 ]
 
 # (attr, translation_key, unit, device_class, icon) for weather station readings.
@@ -110,6 +117,21 @@ async def async_setup_entry(
             )
         )
 
+        # Diagnostic sensors for firmware / hardware info (Block 81)
+        for attr, name, icon in _MOTOR_INFO_SENSOR_DEFS:
+            entities.append(
+                WaremaMotorInfoSensor(
+                    coordinator=coordinator,
+                    snr=snr_int,
+                    snr_hex=snr_hex,
+                    device_type_str=device_type_str,
+                    entry_id=entry.entry_id,
+                    attr=attr,
+                    name=name,
+                    icon=icon,
+                )
+            )
+
     if entities:
         async_add_entities(entities)
         _LOGGER.info("Added %d Warema WMS sensor entities", len(entities))
@@ -142,7 +164,7 @@ async def async_setup_entry(
     )
 
 
-class WaremaWmsSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
+class WaremaWmsSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity, RestoreEntity):
     """A numeric sensor that mirrors one field from the WMS position payload."""
 
     _attr_has_entity_name = True
@@ -166,11 +188,32 @@ class WaremaWmsSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
         self._device_type_str = device_type_str
         self._entry_id = entry_id
         self._key = key
+        self._cached_value: int | None = None
 
         self._attr_name = name
         self._attr_native_unit_of_measurement = unit
         self._attr_icon = icon
         self._attr_unique_id = f"{DOMAIN}_{snr_hex}_{key}"
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known value after HA restart."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                try:
+                    self._cached_value = int(float(last_state.state))
+                except (ValueError, TypeError):
+                    pass
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update cached value whenever coordinator delivers a valid reading."""
+        state = self._get_blind_state()
+        if state and state.position >= 0:
+            self._cached_value = (
+                state.position if self._key == "position" else state.angle
+            )
+        super()._handle_coordinator_update()
 
     def _get_blind_state(self):
         """Get the current blind state from coordinator data."""
@@ -190,13 +233,11 @@ class WaremaWmsSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the sensor value from coordinator data."""
+        """Return live coordinator value, or last cached value if unavailable."""
         state = self._get_blind_state()
-        if not state:
-            return None
-        if self._key == "position":
-            return state.position if state.position >= 0 else None
-        return state.angle if state.position >= 0 else None
+        if state and state.position >= 0:
+            return state.position if self._key == "position" else state.angle
+        return self._cached_value
 
 
 class WaremaSnrSensor(SensorEntity):
@@ -290,3 +331,52 @@ class WaremaWeatherSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
         if state is None:
             return None
         return getattr(state, self._field)
+
+
+class WaremaMotorInfoSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
+    """Diagnostic sensor exposing a read-only firmware/hardware field (Block 81)."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        snr_hex: str,
+        device_type_str: str,
+        entry_id: str,
+        attr: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._device_type_str = device_type_str
+        self._entry_id = entry_id
+        self._attr_key = attr
+
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_{attr}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            name=self._device_type_str,
+            manufacturer="Warema",
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._snr in self.coordinator.motor_params
+
+    @property
+    def native_value(self) -> str | None:
+        params = self.coordinator.motor_params.get(self._snr)
+        if params is None:
+            return None
+        return getattr(params, self._attr_key, None)

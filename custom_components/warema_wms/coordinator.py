@@ -98,6 +98,8 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         # Weather stations are not in CONF_DEVICES; their entities are created
         # dynamically on the first broadcast via SIGNAL_NEW_WEATHER_STATION.
         self.weather_data: dict[int, WeatherState] = {}
+        # Motor parameters read from block 38 + block 81 on startup.
+        self.motor_params: dict[int, Any] = {}  # snr_int -> MotorParameters
 
     async def async_connect(self) -> None:
         """Connect to the WMS stick and wait for initialization.
@@ -192,6 +194,7 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         # still lack info, so steady-state startup cost is zero. The result is
         # persisted back to entry.data so the lookup never repeats.
         await self._enrich_product_info()
+        await self.async_refresh_motor_params()
 
     async def _enrich_product_info(self) -> None:
         """Fill in missing product_type / is_with_blinds for blinds.
@@ -241,6 +244,46 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
                 "WaremaCoordinator: persisted product info for %d device(s)",
                 sum(1 for d in devices if d.get("product_type") is not None),
             )
+
+    async def async_refresh_motor_params(self) -> None:
+        """Read motor parameters (block 38 + block 81) for all blinds.
+
+        Called once at startup after the stick is connected.  Results are
+        stored in ``self.motor_params`` and listeners are notified so that
+        diagnostic sensor entities can populate their state.
+
+        Failures are logged but do not abort startup.
+        """
+        if not self.stick:
+            return
+        for blind in self.stick.get_blinds():
+            try:
+                params = await self.hass.async_add_executor_job(
+                    self.stick.read_motor_parameters, blind.snr
+                )
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.debug(
+                    "WaremaCoordinator: read_motor_parameters failed for %s",
+                    blind.snr_hex,
+                    exc_info=True,
+                )
+                continue
+            if params is None:
+                continue
+            try:
+                sw_ver, dev_type = await self.hass.async_add_executor_job(
+                    self.stick.read_block81_info, blind.snr
+                )
+                params.software_version = sw_ver
+                params.device_type_name = dev_type
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.debug(
+                    "WaremaCoordinator: read_block81_info failed for %s",
+                    blind.snr_hex,
+                    exc_info=True,
+                )
+            self.motor_params[blind.snr] = params
+        self.async_update_listeners()
 
     async def async_disconnect(self) -> None:
         """Disconnect from the WMS stick."""

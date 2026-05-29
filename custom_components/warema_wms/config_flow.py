@@ -36,9 +36,15 @@ from serial.tools import list_ports
 from homeassistant import config_entries
 from homeassistant.components import usb
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.data_entry_flow import FlowResult, section
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 
 from .const import (
     BLIND_DEVICE_TYPES,
@@ -1144,6 +1150,11 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         self._discovered_devices: list[dict] = []
         self._fw_selected_snr: int | None = None
         self._fw_current_params = None  # MotorParameters when read succeeds
+        self._fw_source_snr: int | None = None  # chosen source, None = own values
+        self._fw_source_name: str = ""  # display name of the source for the spinner
+        self._fw_prefill = None  # MotorParameters used to fill the form
+        self._fw_load_task = None  # asyncio task of the parameter read
+        self._fw_ref_failed = False  # source unreadable -> warn in the form
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -1236,17 +1247,36 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
     # Configure firmware parameters of an actuator (Block 38)
     # ------------------------------------------------------------------
 
+    def _configurable_devices(self) -> list[dict]:
+        """Return configured devices whose firmware parameters we can edit.
+
+        Only Actuator UP (20) / Plug Receiver (21) / Actuator 230V UP (2E) store
+        the manualOperation / scene / common params we expose. Radio motors (25)
+        use a different parameter layout.
+        """
+        devices = list(self.config_entry.data.get(CONF_DEVICES, []))
+        return [d for d in devices if d.get("device_type", "") in {"20", "21", "2E"}]
+
+    def _device_label(self, d: dict) -> str:
+        """Friendly label for a device, preferring the HA device-registry name."""
+        from homeassistant.helpers import device_registry as dr
+
+        registry = dr.async_get(self.hass)
+        entry = registry.async_get_device(identifiers={(DOMAIN, d["snr_hex"])})
+        friendly = entry.name_by_user if entry and entry.name_by_user else None
+        if not friendly and entry:
+            friendly = entry.name
+        base = f"SNR {d['snr']} ({d['snr_hex']})"
+        if friendly and friendly != f"{d.get('device_type_str', '')} {d['snr']}".strip():
+            return f"{friendly} - {base}"
+        # Fallback: keep the original "<type> - SNR <n> (<hex>)" format.
+        return f"{d.get('device_type_str', '?')} - {base}"
+
     async def async_step_configure_firmware(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Pick a device whose firmware parameters to configure."""
-        devices = list(self.config_entry.data.get(CONF_DEVICES, []))
-        # Only Actuator UP (20) / Plug Receiver (21) / Actuator 230V UP (2E)
-        # store the manualOperation / scene / common params we expose. Radio
-        # motors (25) use a different parameter layout.
-        configurable = [
-            d for d in devices if d.get("device_type", "") in {"20", "21", "2E"}
-        ]
+        configurable = self._configurable_devices()
         if not configurable:
             return self.async_abort(reason="no_configurable_devices")
 
@@ -1255,33 +1285,125 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
                 self._fw_selected_snr = int(user_input["device"])
             except (KeyError, ValueError, TypeError):
                 return self.async_abort(reason="invalid_device")
-            return await self.async_step_firmware_params()
+            # Resolve the optional copy source. "" means "use the target's own
+            # current values"; any SNR means load that device's values instead.
+            copy_from = user_input.get("copy_from", "")
+            if copy_from:
+                try:
+                    self._fw_source_snr = int(copy_from)
+                except (ValueError, TypeError):
+                    self._fw_source_snr = None
+            else:
+                self._fw_source_snr = None
+            self._fw_source_name = self._source_display_name()
+            # Reset transient load state so a fresh read happens.
+            self._fw_load_task = None
+            self._fw_prefill = None
+            self._fw_ref_failed = False
+            return await self.async_step_firmware_load()
 
-        # Prefer the user-given friendly name from HA's device registry over
-        # the scan-time default (which is just "<Device Type> <SNR>").
-        from homeassistant.helpers import device_registry as dr
-
-        registry = dr.async_get(self.hass)
-
-        def label_for(d: dict) -> str:
-            entry = registry.async_get_device(identifiers={(DOMAIN, d["snr_hex"])})
-            friendly = entry.name_by_user if entry and entry.name_by_user else None
-            if not friendly and entry:
-                friendly = entry.name
-            base = f"SNR {d['snr']} ({d['snr_hex']})"
-            if (
-                friendly
-                and friendly != f"{d.get('device_type_str', '')} {d['snr']}".strip()
-            ):
-                return f"{friendly} - {base}"
-            # Fallback: keep the original "<type> - SNR <n> (<hex>)" format.
-            return f"{d.get('device_type_str', '?')} - {base}"
-
-        device_options = {str(d["snr"]): label_for(d) for d in configurable}
+        device_options = {str(d["snr"]): self._device_label(d) for d in configurable}
+        source_options = {"": "— Aktuelle Werte des Geräts —"}
+        source_options.update(
+            {str(d["snr"]): self._device_label(d) for d in configurable}
+        )
         return self.async_show_form(
             step_id="configure_firmware",
-            data_schema=vol.Schema({vol.Required("device"): vol.In(device_options)}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required("device"): vol.In(device_options),
+                    vol.Optional("copy_from", default=""): vol.In(source_options),
+                }
+            ),
             description_placeholders={"device_count": str(len(configurable))},
+        )
+
+    def _source_display_name(self) -> str:
+        """Human-readable name of the chosen copy source for the spinner text."""
+        if self._fw_source_snr is None or self._fw_source_snr == self._fw_selected_snr:
+            return "den aktuellen Werten des Geräts"
+        match = next(
+            (
+                d
+                for d in self._configurable_devices()
+                if int(d["snr"]) == self._fw_source_snr
+            ),
+            None,
+        )
+        return self._device_label(match) if match else str(self._fw_source_snr)
+
+    async def _async_load_fw_params(self) -> None:
+        """Read the target's params (diff baseline) and, if requested, the source.
+
+        The target's values are always read and kept as ``_fw_current_params`` —
+        the write-diff baseline that is never overwritten. ``_fw_prefill`` is what
+        seeds the form: the source device's values when copying, otherwise the
+        target's own values.
+        """
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None or coordinator.stick is None:
+            self._fw_current_params = None
+            return
+
+        self._fw_current_params = await self.hass.async_add_executor_job(
+            coordinator.stick.read_motor_parameters, self._fw_selected_snr
+        )
+        if self._fw_current_params is None:
+            self._fw_prefill = None
+            return
+
+        if self._fw_source_snr and self._fw_source_snr != self._fw_selected_snr:
+            ref = await self.hass.async_add_executor_job(
+                coordinator.stick.read_motor_parameters, self._fw_source_snr
+            )
+            self._fw_ref_failed = ref is None
+            self._fw_prefill = ref if ref is not None else self._fw_current_params
+        else:
+            self._fw_prefill = self._fw_current_params
+
+    async def async_step_firmware_load(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Show a spinner while reading motor parameters, then open the form."""
+        if self._fw_load_task is None:
+            self._fw_load_task = self.hass.async_create_task(
+                self._async_load_fw_params()
+            )
+
+        if not self._fw_load_task.done():
+            return self.async_show_progress(
+                step_id="firmware_load",
+                progress_action="loading",
+                progress_task=self._fw_load_task,
+                description_placeholders={"source_name": self._fw_source_name},
+            )
+
+        self._fw_load_task = None
+        return self.async_show_progress_done(next_step_id="firmware_params")
+
+    def _show_firmware_form(
+        self, prefill, errors: dict[str, str] | None = None
+    ) -> FlowResult:
+        """Render the firmware-params form, pre-filled from ``prefill``.
+
+        ``prefill`` is the MotorParameters object whose values seed the field
+        defaults — either the target's own current values or a source device's
+        values when the user requested a copy.
+        """
+        selected = next(
+            (
+                d
+                for d in self._configurable_devices()
+                if int(d["snr"]) == self._fw_selected_snr
+            ),
+            None,
+        )
+        device_name = self._device_label(selected) if selected else ""
+        return self.async_show_form(
+            step_id="firmware_params",
+            data_schema=self._build_firmware_schema(prefill),
+            errors=errors or {},
+            description_placeholders={"device_name": device_name},
         )
 
     async def async_step_firmware_params(
@@ -1295,34 +1417,50 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
             return self.async_abort(reason="not_loaded")
 
         if user_input is None:
-            # First entry: read current values from the device.
-            self._fw_current_params = await self.hass.async_add_executor_job(
-                coordinator.stick.read_motor_parameters, self._fw_selected_snr
-            )
+            # Parameters were already read by the firmware_load progress step.
+            # `_fw_current_params` is the diff baseline (target's own values),
+            # `_fw_prefill` is what seeds the form (target or copied source).
             if self._fw_current_params is None:
                 return self.async_abort(reason="cannot_read_params")
+            errors = {"base": "ref_unreachable"} if self._fw_ref_failed else None
+            return self._show_firmware_form(self._fw_prefill, errors=errors)
 
-            return self.async_show_form(
-                step_id="firmware_params",
-                data_schema=self._build_firmware_schema(self._fw_current_params),
-                description_placeholders=self._firmware_placeholders(
-                    self._fw_current_params
-                ),
-            )
+        # Section selectors return their fields nested under the section key;
+        # flatten everything into one dict before diffing.
+        flat: dict[str, Any] = {}
+        for key, value in user_input.items():
+            if isinstance(value, dict):
+                flat.update(value)
+            else:
+                flat[key] = value
 
-        # Submit: build a MotorParameters with only the changed fields and write.
-        # With the `vol.Required` schema, every field is present in user_input
-        # with either the current value (user left it alone) or a new value.
-        # We diff against `_fw_current_params` and write only what actually changed.
+        # Build a MotorParameters with only the changed fields and write.
+        # Every field is present in `flat` with either the current value (user
+        # left it alone) or a new value. We diff against the target baseline
+        # `_fw_current_params` and write only what actually changed.
         cur = self._fw_current_params
         new = MotorParameters()
 
         def diff_int(field_key, current_val):
-            v = user_input.get(field_key)
+            v = flat.get(field_key)
             if v is None:
                 return None
             v = int(v)
             return v if v != current_val else None
+
+        def diff_bool(field_key, current_val):
+            v = flat.get(field_key)
+            if v is None:
+                return None
+            b = bool(v)
+            return b if b != current_val else None
+
+        def diff_float(field_key, current_val):
+            v = flat.get(field_key)
+            if v is None:
+                return None
+            f = float(v)
+            return f if f != current_val else None
 
         new.manual_position = diff_int(
             "manual_position", cur.manual_position if cur else None
@@ -1337,6 +1475,36 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         new.comfort_angle = diff_int(
             "comfort_angle", cur.comfort_angle if cur else None
         )
+        new.comfort_auto_enabled = diff_bool(
+            "comfort_auto_enabled", cur.comfort_auto_enabled if cur else None
+        )
+        new.absent_position = diff_int(
+            "absent_position", cur.absent_position if cur else None
+        )
+        new.absent_angle = diff_int(
+            "absent_angle", cur.absent_angle if cur else None
+        )
+        new.run_time_up = diff_int("run_time_up", cur.run_time_up if cur else None)
+        new.run_time_down = diff_int(
+            "run_time_down", cur.run_time_down if cur else None
+        )
+        new.calibration_up = diff_int(
+            "calibration_up", cur.calibration_up if cur else None
+        )
+        new.calibration_down = diff_int(
+            "calibration_down", cur.calibration_down if cur else None
+        )
+        new.tilting_time = diff_float(
+            "tilting_time", cur.tilting_time if cur else None
+        )
+        new.min_angle = diff_int("min_angle", cur.min_angle if cur else None)
+        new.max_angle = diff_int("max_angle", cur.max_angle if cur else None)
+        new.tilting_steps = diff_int(
+            "tilting_steps", cur.tilting_steps if cur else None
+        )
+        new.motor_rotation = diff_bool(
+            "motor_rotation", cur.motor_rotation if cur else None
+        )
 
         # Nothing changed -> close the dialog without contacting the device.
         if all(
@@ -1347,6 +1515,18 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
                 new.manual_dwell_time,
                 new.comfort_position,
                 new.comfort_angle,
+                new.comfort_auto_enabled,
+                new.absent_position,
+                new.absent_angle,
+                new.run_time_up,
+                new.run_time_down,
+                new.calibration_up,
+                new.calibration_down,
+                new.tilting_time,
+                new.min_angle,
+                new.max_angle,
+                new.tilting_steps,
+                new.motor_rotation,
             )
         ):
             return self.async_create_entry(
@@ -1357,74 +1537,127 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
             coordinator.stick.write_motor_parameters, self._fw_selected_snr, new
         )
         if not ok:
-            return self.async_show_form(
-                step_id="firmware_params",
-                data_schema=self._build_firmware_schema(cur),
-                description_placeholders=self._firmware_placeholders(cur),
-                errors={"base": "write_failed"},
-            )
+            return self._show_firmware_form(cur, errors={"base": "write_failed"})
 
         return self.async_create_entry(title="", data=dict(self.config_entry.options))
 
     @staticmethod
     def _build_firmware_schema(cur) -> vol.Schema:
-        """Build the firmware-params form schema, prefilled with current values.
+        """Build the firmware-params form schema, prefilled from ``cur``.
 
-        All fields are ``vol.Required`` with their current value as the default
-        so the user always sees the current state. No checkbox/optional toggles
-        - users edit what they want to change, leave the rest alone, and the
-        submit handler diffs to decide what to actually write. This mirrors the
-        ``STEP_MANUAL_SCHEMA`` pattern used elsewhere in this file.
+        Numeric fields use ``NumberSelector`` in BOX mode (input fields, not
+        sliders); booleans use a toggle. Related fields are grouped into
+        collapsible sections. All fields are ``vol.Required`` with their current
+        value as the default, so the user always sees the current state, edits
+        what they want, and the submit handler diffs to decide what to write.
+        ``cur`` may be the target's own values or a copied source device's values.
         """
-        # Defaults: prefer the read value, fall back to a sensible default if
-        # the device reports the 0xFF "unset" sentinel (mapped to None).
+
+        def num(lo, hi, step=1, unit=None) -> NumberSelector:
+            config: dict[str, Any] = {
+                "min": lo,
+                "max": hi,
+                "step": step,
+                "mode": NumberSelectorMode.BOX,
+            }
+            # HA's selector schema validates unit_of_measurement as a str, so a
+            # None value raises vol.Invalid; only set it when a unit is given.
+            if unit is not None:
+                config["unit_of_measurement"] = unit
+            return NumberSelector(NumberSelectorConfig(**config))
+
+        def dflt(value, fallback):
+            return value if value is not None else fallback
+
+        def sect(schema: dict) -> section:
+            return section(vol.Schema(schema), {"collapsed": True})
+
         return vol.Schema(
             {
-                vol.Required(
-                    "manual_position",
-                    default=(
-                        cur.manual_position if cur.manual_position is not None else 100
-                    ),
-                ): vol.All(int, vol.Range(min=0, max=100)),
-                vol.Required(
-                    "manual_angle",
-                    default=cur.manual_angle if cur.manual_angle is not None else 0,
-                ): vol.All(int, vol.Range(min=0, max=75)),
-                vol.Required(
-                    "manual_dwell_time",
-                    default=(
-                        cur.manual_dwell_time
-                        if cur.manual_dwell_time is not None
-                        else 0
-                    ),
-                ): vol.All(int, vol.Range(min=0, max=254)),
-                vol.Required(
-                    "comfort_position",
-                    default=(
-                        cur.comfort_position if cur.comfort_position is not None else 50
-                    ),
-                ): vol.All(int, vol.Range(min=0, max=100)),
-                vol.Required(
-                    "comfort_angle",
-                    default=cur.comfort_angle if cur.comfort_angle is not None else 0,
-                ): vol.All(int, vol.Range(min=0, max=75)),
+                vol.Required("manual"): sect(
+                    {
+                        vol.Required(
+                            "manual_position",
+                            default=dflt(cur.manual_position, 100),
+                        ): num(0, 100, unit="%"),
+                        vol.Required(
+                            "manual_angle", default=dflt(cur.manual_angle, 0)
+                        ): num(0, 75, unit="°"),
+                        vol.Required(
+                            "manual_dwell_time",
+                            default=dflt(cur.manual_dwell_time, 0),
+                        ): num(0, 254),
+                    }
+                ),
+                vol.Required("comfort"): sect(
+                    {
+                        vol.Required(
+                            "comfort_position",
+                            default=dflt(cur.comfort_position, 50),
+                        ): num(0, 100, unit="%"),
+                        vol.Required(
+                            "comfort_angle", default=dflt(cur.comfort_angle, 0)
+                        ): num(0, 75, unit="°"),
+                        vol.Required(
+                            "comfort_auto_enabled",
+                            default=dflt(cur.comfort_auto_enabled, True),
+                        ): BooleanSelector(),
+                    }
+                ),
+                vol.Required("absent"): sect(
+                    {
+                        vol.Required(
+                            "absent_position",
+                            default=dflt(cur.absent_position, 95),
+                        ): num(0, 100, unit="%"),
+                        vol.Required(
+                            "absent_angle", default=dflt(cur.absent_angle, 75)
+                        ): num(0, 75, unit="°"),
+                    }
+                ),
+                vol.Required("travel"): sect(
+                    {
+                        vol.Required(
+                            "run_time_up", default=dflt(cur.run_time_up, 90)
+                        ): num(0, 254, unit="s"),
+                        vol.Required(
+                            "run_time_down", default=dflt(cur.run_time_down, 90)
+                        ): num(0, 254, unit="s"),
+                        vol.Required(
+                            "calibration_up", default=dflt(cur.calibration_up, 3)
+                        ): num(0, 254, unit="s"),
+                        vol.Required(
+                            "calibration_down",
+                            default=dflt(cur.calibration_down, 1),
+                        ): num(0, 254, unit="s"),
+                    }
+                ),
+                vol.Required("slats"): sect(
+                    {
+                        vol.Required(
+                            "tilting_time", default=dflt(cur.tilting_time, 1.6)
+                        ): num(0, 50.8, step=0.2, unit="s"),
+                        vol.Required(
+                            "min_angle", default=dflt(cur.min_angle, -75)
+                        ): num(-127, 127, unit="°"),
+                        vol.Required(
+                            "max_angle", default=dflt(cur.max_angle, 75)
+                        ): num(-127, 127, unit="°"),
+                        vol.Required(
+                            "tilting_steps", default=dflt(cur.tilting_steps, 10)
+                        ): num(0, 254),
+                    }
+                ),
+                vol.Required("misc"): sect(
+                    {
+                        vol.Required(
+                            "motor_rotation",
+                            default=dflt(cur.motor_rotation, False),
+                        ): BooleanSelector(),
+                    }
+                ),
             }
         )
-
-    @staticmethod
-    def _firmware_placeholders(cur) -> dict[str, str]:
-        """Show the current values in the form description."""
-
-        def fmt(v, unit=""):
-            return f"{v}{unit}" if v is not None else "—"
-
-        return {
-            "current_manual_position": fmt(cur.manual_position, " %"),
-            "current_manual_angle": fmt(cur.manual_angle, "°"),
-            "current_manual_dwell_time": fmt(cur.manual_dwell_time),
-            "current_comfort_position": fmt(cur.comfort_position, " %"),
-            "current_comfort_angle": fmt(cur.comfort_angle, "°"),
-        }
 
 
 # ---------------------------------------------------------------------------

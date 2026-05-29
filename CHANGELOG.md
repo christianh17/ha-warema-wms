@@ -2,6 +2,78 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-05-29
+
+### Added
+- **Full motor-parameter configuration.** The *Configure motor firmware
+  parameters* options flow now exposes all 17 writable block-38 parameters
+  instead of the original 5:
+  - *Komfortfunktionen* (`comfort_auto_enabled`) — enable/disable the sensor
+    automatics (sun, wind) on the handheld remote
+  - *Position/Winkel bei Status Abwesend* (`absent_position`, `absent_angle`)
+    — position and slat angle applied when the "Away" status is active
+  - *Laufzeit Hoch/Tief* (`run_time_up`, `run_time_down`) — seconds for a
+    full travel stroke, used for accurate position tracking
+  - *Kalibrierung Hoch/Tief* (`calibration_up`, `calibration_down`) — extra
+    run time after hitting the end stop for precise referencing
+  - *Wendezeit* (`tilting_time`) — seconds for a full 180° slat rotation
+  - *Minimaler/Maximaler Lamellenwinkel* (`min_angle`, `max_angle`) — slat
+    travel limits in degrees (−127 … +127)
+  - *Wendeschritte pro Wendung* (`tilting_steps`) — intermediate steps per
+    full slat rotation (finer = smoother)
+  - *Motordrehrichtung umkehren* (`motor_rotation`) — reverses motor direction
+    if the blind moves the wrong way
+  Each field is pre-filled with the value currently stored in the motor. Only
+  changed fields are written; unchanged fields are never touched.
+- **Firmware/hardware diagnostic sensors.** Two read-only diagnostic entities
+  are now created for each configured blind:
+  - *Softwareversion* — firmware version string read from block 81
+  - *Gerätetyp* — hardware device-type name read from block 81
+  Both are marked `entity_category: diagnostic` and appear in the device's
+  diagnostic card in the HA UI.
+- **German translations for all options-flow strings.** The
+  `translations/de.json` file now contains full German labels and one-sentence
+  field descriptions for all 17 firmware parameters, matching the ZHA style
+  (clean label + concise description below the input).
+- **Copy parameters from another blind.** The device picker now has an optional
+  *Load values from* dropdown. Choose another configured blind as the source and
+  the form opens pre-filled with that blind's values, ready to write to the
+  selected device; leave it on *current values of the device* to edit the device's
+  own settings. Handy for replicating a tuned setup across identical blinds.
+
+### Changed
+- **Redesigned the motor-parameter form for clarity.** Numeric fields are now
+  **input boxes instead of sliders** (with %/s/° units shown), the 17 fields are
+  organised into **collapsible sections** (Manual operation, Comfort, Away
+  status, Run times & calibration, Slats, Other), and the redundant current-value
+  table above the form was removed since every field is pre-filled with its
+  current value.
+- **Parameters are read up front with a loading indicator.** Selecting the device
+  (and optional copy source) leads through a short progress step that reads the
+  values over the radio network before the form opens. The form's *Submit* now
+  only writes — the previous two-step "submit to load, submit again to write" copy
+  flow is gone. The form title shows which device is being edited.
+- **Minimum Home Assistant version raised to 2024.6.0** (`hacs.json`), required
+  for the collapsible form sections.
+
+## [1.3.1] - 2026-05-29
+
+### Fixed
+- **Motor-parameter writes no longer risk corrupting unrelated settings.**
+  Writing firmware parameters (manual/comfort position & slat angle, dwell time,
+  absent flag) previously staged a full 496-byte snapshot of block 38 into a
+  staging buffer and committed it atomically ("transfer block"). On some
+  firmware a partial commit could silently overwrite *unrelated* bytes — most
+  critically `motorRotation` (block 38, addr 475), which inverts a blind's
+  up/down direction. Because verification only re-checked the bytes that were
+  intended to change, this corruption went undetected.
+
+  Writes are now **targeted single-byte writes** to the exact block-38 address
+  for each changed field. Only the requested bytes are ever touched, so a failed
+  or interrupted write can no longer scramble other parameters. Each write is
+  retried, no-op writes are skipped, and every written byte is read back and
+  verified before the operation reports success.
+
 ## [1.3.0] - 2026-05-28
 
 ### Added
