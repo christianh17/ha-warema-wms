@@ -730,16 +730,22 @@ class WmsStick:
             "max_ang=%s steps=%s motor_rot=%s cal_up=%s cal_dn=%s "
             "absent_pos=%s absent_ang=%s comfort_auto=%s",
             blind.snr_hex,
-            params.run_time_up, params.run_time_down, params.tilting_time,
-            params.min_angle, params.max_angle, params.tilting_steps,
-            params.motor_rotation, params.calibration_up, params.calibration_down,
-            params.absent_position, params.absent_angle, params.comfort_auto_enabled,
+            params.run_time_up,
+            params.run_time_down,
+            params.tilting_time,
+            params.min_angle,
+            params.max_angle,
+            params.tilting_steps,
+            params.motor_rotation,
+            params.calibration_up,
+            params.calibration_down,
+            params.absent_position,
+            params.absent_angle,
+            params.comfort_auto_enabled,
         )
         return params
 
-    def read_block81_info(
-        self, blind_id, timeout: float = 3.0
-    ) -> tuple:
+    def read_block81_info(self, blind_id, timeout: float = 3.0) -> tuple:
         """Read firmware version and device type from Block 81 (read-only).
 
         Returns a ``(software_version, device_type_name)`` tuple.  Both values
@@ -789,7 +795,10 @@ class WmsStick:
             pass
 
         _LOGGER.info(
-            "read_block81_info %s: sw_ver=%s dev_type=%s", blind.snr_hex, sw_ver, dev_type
+            "read_block81_info %s: sw_ver=%s dev_type=%s",
+            blind.snr_hex,
+            sw_ver,
+            dev_type,
         )
         return sw_ver, dev_type
 
@@ -1041,7 +1050,11 @@ class WmsStick:
             )
         if params.tilting_time is not None:
             patches.append(
-                ("tilting_time", ADDR_TILTING_TIME, tilting_time_to_byte(params.tilting_time))
+                (
+                    "tilting_time",
+                    ADDR_TILTING_TIME,
+                    tilting_time_to_byte(params.tilting_time),
+                )
             )
         if params.min_angle is not None:
             patches.append(

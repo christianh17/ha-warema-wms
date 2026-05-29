@@ -1267,7 +1267,10 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         if not friendly and entry:
             friendly = entry.name
         base = f"SNR {d['snr']} ({d['snr_hex']})"
-        if friendly and friendly != f"{d.get('device_type_str', '')} {d['snr']}".strip():
+        if (
+            friendly
+            and friendly != f"{d.get('device_type_str', '')} {d['snr']}".strip()
+        ):
             return f"{friendly} - {base}"
         # Fallback: keep the original "<type> - SNR <n> (<hex>)" format.
         return f"{d.get('device_type_str', '?')} - {base}"
@@ -1481,9 +1484,7 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         new.absent_position = diff_int(
             "absent_position", cur.absent_position if cur else None
         )
-        new.absent_angle = diff_int(
-            "absent_angle", cur.absent_angle if cur else None
-        )
+        new.absent_angle = diff_int("absent_angle", cur.absent_angle if cur else None)
         new.run_time_up = diff_int("run_time_up", cur.run_time_up if cur else None)
         new.run_time_down = diff_int(
             "run_time_down", cur.run_time_down if cur else None
@@ -1494,9 +1495,7 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         new.calibration_down = diff_int(
             "calibration_down", cur.calibration_down if cur else None
         )
-        new.tilting_time = diff_float(
-            "tilting_time", cur.tilting_time if cur else None
-        )
+        new.tilting_time = diff_float("tilting_time", cur.tilting_time if cur else None)
         new.min_angle = diff_int("min_angle", cur.min_angle if cur else None)
         new.max_angle = diff_int("max_angle", cur.max_angle if cur else None)
         new.tilting_steps = diff_int(
@@ -1640,9 +1639,9 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
                         vol.Required(
                             "min_angle", default=dflt(cur.min_angle, -75)
                         ): num(-127, 127, unit="°"),
-                        vol.Required(
-                            "max_angle", default=dflt(cur.max_angle, 75)
-                        ): num(-127, 127, unit="°"),
+                        vol.Required("max_angle", default=dflt(cur.max_angle, 75)): num(
+                            -127, 127, unit="°"
+                        ),
                         vol.Required(
                             "tilting_steps", default=dflt(cur.tilting_steps, 10)
                         ): num(0, 254),

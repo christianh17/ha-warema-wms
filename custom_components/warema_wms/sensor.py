@@ -16,7 +16,13 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import LIGHT_LUX, STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfSpeed, UnitOfTemperature
+from homeassistant.const import (
+    LIGHT_LUX,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfSpeed,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
@@ -164,7 +170,9 @@ async def async_setup_entry(
     )
 
 
-class WaremaWmsSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity, RestoreEntity):
+class WaremaWmsSensor(
+    CoordinatorEntity[WaremaCoordinator], SensorEntity, RestoreEntity
+):
     """A numeric sensor that mirrors one field from the WMS position payload."""
 
     _attr_has_entity_name = True
