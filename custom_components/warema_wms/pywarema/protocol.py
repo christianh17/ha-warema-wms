@@ -46,17 +46,13 @@ BLIND_DEVICE_TYPES = {"20", "21", "25", "2E"}
 
 
 # ---------------------------------------------------------------------------
-# Product types (EProductType in the manufacturer's the protocol notes)
+# Product types (EProductType IDs as used by the WMS protocol)
 # ---------------------------------------------------------------------------
 #
 # The "product" is the thing the motor is moving (a Raffstore vs an Awning vs a
 # Roller Shutter) and is independent of the actuator *hardware* (Plug Receiver
 # vs UP Aktuator vs Radio Motor). The integer ID lives in Block 37 addr 12
-# alongside isWithBlinds/isWithRuntime flags - see the  plist
-# wms-plug-receiver-v3.plist.json, key "productParameters".
-#
-# Enum values derived from the master "EProductType" in
-# the protocol notes (grep for "A[A.EXTERNAL_VENETIAN_BLINDS=0]").
+# alongside the isWithBlinds/isWithRuntime flags.
 
 PRODUCT_BLOCK = 37
 PRODUCT_ADDR = 12  # productType (UInt8)
@@ -184,10 +180,9 @@ def angle_hex_to_percent(ang_hex: str) -> int:
 # Motor firmware parameters (Block 38 - persistent device-side settings)
 # ---------------------------------------------------------------------------
 #
-# These are the values WMS Studio Pro shows under "Position bei manueller
-# Bedienung" etc. and that persist across power cycles - they also apply when
-# the handheld remote operates the motor. Encodings are verified against a
-# protocol capture (see the protocol notes):
+# These are the persistent per-motor settings ("Position bei manueller
+# Bedienung" etc.) that survive power cycles - they also apply when the handheld
+# remote operates the motor. Block addresses and encodings:
 #
 #   manualOperation.settingDown.position  block 38 addr 301: byte = pct * 2
 #   manualOperation.settingDown.slatAngle block 38 addr 302: byte = deg + 127
@@ -201,8 +196,7 @@ def angle_hex_to_percent(ang_hex: str) -> int:
 
 MOTOR_PARAM_BLOCK = 38
 
-# Block addresses (from the  PList for ExternalVenetianBlind +
-# wms-plug-receiver-v3, see the protocol notes).
+# Block 38 addresses for the persistent motor parameters.
 ADDR_COMMON_IS_ABSENT = 1
 ADDR_COMFORT_AUTO_ENABLED = 2  # common.isComfortAutoEnabled
 ADDR_MANUAL_POSITION = 301
@@ -224,7 +218,7 @@ ADDR_MAX_ANGLE = 473  # productSettings.maxAngle
 ADDR_TILTING_STEPS = 474  # productSettings.tiltingSteps
 ADDR_MOTOR_ROTATION = 475  # productSettings.motorRotation (0=normal, 1=reversed)
 
-# Block 81: firmware / hardware info (read-only; exact byte offsets TBD empirically)
+# Block 81: firmware / hardware info (read-only)
 SW_INFO_BLOCK = 81
 SW_INFO_ADDR = 0
 SW_INFO_SIZE = 32
@@ -570,8 +564,8 @@ def decode_frame(raw: str) -> dict:
             else:
                 # Generic MB8 read response.
                 # Wire format: <block_hex2><addr_LE_hex4><size_hex2><data_hex>
-                # See the protocol notes - used for arbitrary block/addr reads on
-                # top of the legacy hardcoded position/clock/auto cases above.
+                # Used for arbitrary block/addr reads on top of the legacy
+                # hardcoded position/clock/auto cases above.
                 msg_type = "mb8ReadResponse"
                 params["block"] = int(payload[0:2], 16)
                 params["addr"] = int(payload[2:4], 16) | (int(payload[4:6], 16) << 8)

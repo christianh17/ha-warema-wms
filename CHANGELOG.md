@@ -124,16 +124,16 @@ All notable changes to this project will be documented in this file.
   enables slat tilt only for products that actually have slats
   (ExternalVenetianBlind, InternalVenetianBlind, VerticalLouvreBlind), based on
   the motor's own `isWithBlinds` flag.
-- All 23 EProductType variants known to WMS Studio Pro are mapped (the Awning
-  family, Markisolette, Pergola, Roller Shutter, Pleated Blind, Window, Sun
-  Sail, …). Unknown IDs fall back to `CoverDeviceClass.BLIND`.
+- The known WMS product-type variants are mapped (the Awning family,
+  Markisolette, Pergola, Roller Shutter, Pleated Blind, Window, Sun Sail, …).
+  Unknown IDs fall back to `CoverDeviceClass.BLIND`.
 - The device picker in the setup wizard and the rescan flow now show the
   product name (e.g. "PergolaAwning") instead of the generic actuator hardware
   name ("Plug receiver"), so users pick the right device by what's actually
   installed on their facade.
 - New helper `WmsStick.read_product_info()` (single MB8 read on Block 37) and
-  `pywarema.protocol.PRODUCT_TYPE_NAMES` table derived from the
-   `the protocol notes` `EProductType` enum.
+  the `pywarema.protocol.PRODUCT_TYPE_NAMES` table covering the WMS
+  product-type IDs.
 
 ### Changed
 - The previous hard-coded "tilt only for actuator types 20/2E" rule from 1.0.2
@@ -158,15 +158,12 @@ All notable changes to this project will be documented in this file.
 - New `MotorParameters` dataclass and `read_motor_parameters()` /
   `write_motor_parameters()` methods on `WmsStick`. The write path drives the
   full 2-phase transfer-block protocol (8 data chunks to Block 8 → header,
-  trailers → commit at addr `0x01F7` → verify read-back), derived
-  from a protocol capture and the , custom
-  JavaScript engine + PList schemas of the manufacturer app.
+  trailers → commit at addr `0x01F7` → verify read-back).
 - Generic MB8 block read/write (`mb8_read`/`mb8_write`, opcodes
   `0x8010`/`0x8020`) for arbitrary block/addr access on top of the existing
   hard-coded position/clock/auto request types.
-- Bundled PList JSONs for the Zwischenstecker (Plug Receiver v3, SW
-  `05930141007`) × ExternalVenetianBlind variant `E100AF-AFA6`, used to map
-  parameter FQNs to `(block, addr)` pairs.
+- Block-38 parameter addresses for the Plug Receiver v3, used to map each
+  user-visible parameter to its `(block, addr)` pair.
 
 ### Fixed
 - Race condition in `WmsStick._process_queue`: a fast device response could

@@ -314,7 +314,7 @@ This project is licensed under the **MIT License** — see `LICENSE` for details
 
 ## 🙏 Credits
 
-- **Protocol** derived from the JavaScript [warema-wms-venetian-blinds](https://www.npmjs.com/package/warema-wms-venetian-blinds) package
+- **Protocol** derived from the open-source [warema-wms-venetian-blinds](https://www.npmjs.com/package/warema-wms-venetian-blinds) package
 - **Original research** by "Pman" and "willjoha" on the ioBroker forum
 - **Home Assistant community** for the excellent integration framework
 

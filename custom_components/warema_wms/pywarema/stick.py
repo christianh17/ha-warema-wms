@@ -502,12 +502,9 @@ class WmsStick:
     # ---- Motor firmware parameter R/W ------------------------------------
     #
     # The methods below read and write the persistent firmware parameters
-    # that WMS Studio Pro programs into the motor itself (manualOperation,
+    # that are programmed into the motor itself (manualOperation,
     # comfortPosition, isAbsent). These survive power cycles and apply when
     # the handheld remote operates the motor.
-    #
-    # Wire-format reference: see the protocol notes (sections 8-10) - verified
-    # against a protocol capture.
 
     def mb8_read(
         self,
@@ -851,9 +848,9 @@ class WmsStick:
     def _read_full_block_38(self, snr_hex, timeout: float = 5.0) -> Optional[bytes]:
         """Read all 496 bytes of block 38 via a sequence of MB8 reads.
 
-        Uses 32-byte read chunks - that matches the largest read size observed
-        in the protocol capture (`0x20`). Larger reads in our earlier
-        attempts failed on the user's device firmware, so we stay conservative.
+        Uses 32-byte read chunks (`0x20`) - the largest read size that works
+        reliably. Larger reads in our earlier attempts failed on the user's
+        device firmware, so we stay conservative.
 
         Each read is retried up to 3 times on timeout. The full 496-byte read
         therefore takes ~5s under good conditions, up to ~30s if many retries.
@@ -1177,9 +1174,7 @@ class WmsStick:
         downstream callers can read ``blind.product_type`` / ``blind.is_with_blinds``
         without another wire round-trip.
 
-        See ``the protocol notes`` + the  ``wms-plug-receiver-v3.plist.json``
-        ("productParameters" key) for the byte layout. The productType enum is
-        in ``protocol.PRODUCT_TYPE_NAMES``.
+        The productType enum is in ``protocol.PRODUCT_TYPE_NAMES``.
         """
         blind = self._get_blind(blind_id)
         if not blind:

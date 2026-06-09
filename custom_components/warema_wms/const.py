@@ -55,8 +55,7 @@ DEVICE_TYPE_STRINGS = {
 
 # Blind device types (controllable covers)
 # 2A = RADIO_MOTOR_L60_L70 (EDeviceType 42), the motor used by the slat-roof
-# (Lamellendach) products SLAT_ROOF_L60/L70/L70_TILTING. Confirmed from the
-#  WMS Studio Pro core (EDeviceType / EProductType enums).
+# (Lamellendach) products SLAT_ROOF_L60/L70/L70_TILTING.
 BLIND_DEVICE_TYPES = {"20", "21", "25", "2A", "2E"}
 
 # Device types that support slat tilt: the in-wall actuators used for Raffstoren
@@ -75,8 +74,7 @@ TILT_DEVICE_TYPES = {"20", "2A", "2E"}
 # wraps them in CoverDeviceClass(...). Anything not listed falls through to
 # CoverDeviceClass.BLIND.
 #
-# Source: EProductType in the protocol notes (see
-# pywarema.protocol.PRODUCT_TYPE_NAMES for the full table).
+# See pywarema.protocol.PRODUCT_TYPE_NAMES for the full productType table.
 PRODUCT_TYPE_TO_DEVICE_CLASS: dict[int, str] = {
     0: "blind",  # ExternalVenetianBlind (Raffstore)
     1: "blind",  # InternalVenetianBlind
