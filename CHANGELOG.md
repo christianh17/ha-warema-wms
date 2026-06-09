@@ -14,8 +14,6 @@ All notable changes to this project will be documented in this file.
   - added to `BLIND_DEVICE_TYPES` so the slat-roof motor shows up in the scan
   - mapped to the `awning` HA cover device class with slat-tilt enabled
   - product types `27`/`28`/`29` added to the product-name and tilt tables
-  The mapping was confirmed against the  WMS Studio Pro core
-  (`EDeviceType` / `EProductType` enums).
 
 ## [1.4.0] - 2026-05-29
 
