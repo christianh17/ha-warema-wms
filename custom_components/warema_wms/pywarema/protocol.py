@@ -92,6 +92,9 @@ PRODUCT_TYPE_NAMES: dict[int, str] = {
     24: "SunSail",
     25: "PergolaAwning",
     26: "LedDimmable",
+    27: "SlatRoofL60",
+    28: "SlatRoofL70",
+    29: "SlatRoofL70Tilting",
     30: "FloatingOutput",
     39: "ValanceRollerBlindSmart",
     255: "Unknown",
@@ -104,6 +107,9 @@ PRODUCT_TYPES_WITH_TILT: set[int] = {
     0,  # ExternalVenetianBlind
     1,  # InternalVenetianBlind
     14,  # VerticalLouvreBlind
+    27,  # SlatRoofL60 (Lamellendach - tiltable louvres)
+    28,  # SlatRoofL70 (Lamellendach - tiltable louvres)
+    29,  # SlatRoofL70Tilting (Lamellendach - tiltable louvres)
 }
 
 

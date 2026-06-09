@@ -143,6 +143,7 @@ controls are enabled automatically when the motor reports that it has slats.
 | InternalVenetianBlind | `blind` | ✓ |
 | VerticalLouvreBlind (Vertikallamellen) | `blind` | ✓ |
 | RollerShutter (Rollladen) | `shutter` | – |
+| SlatRoofL60 / SlatRoofL70 / SlatRoofL70Tilting (Lamellendach) | `awning` | ✓ |
 | Awning, FacadeAwning, DroparmAwning, VerticalAwning, ConservatoryAwning, PergolaAwning, AwningOneValance, AwningTwoValances, Markisolette, SunSail, Valance | `awning` | – |
 | PleatedBlindInside (Plissee), RollerBlindInside | `shade` | – |
 | Window | `window` | – |
@@ -156,8 +157,9 @@ retries the detection on the next reload.
 
 - **Warema WMS USB Stick** (FTDI FT232R, USB VID: 0403, PID: 6001)
 - **Supported blinds:** any motor driven by an Actuator UP (20), Plug Receiver
-  (21), Radio Motor (25) or Actuator 230V UP (2E) — covering the full Warema
-  range from Raffstoren and roller shutters to all awning families
+  (21), Radio Motor (25), Slat-Roof Motor L60/L70 (2A) or Actuator 230V UP (2E)
+  — covering the full Warema range from Raffstoren and roller shutters to all
+  awning families and Lamellendach (slat-roof) systems
 - **Home Assistant:** 2024.6.0 or later
 - **Python:** 3.9+
 

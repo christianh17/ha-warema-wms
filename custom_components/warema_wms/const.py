@@ -48,21 +48,26 @@ DEVICE_TYPE_STRINGS = {
     "20": "Actuator UP",
     "21": "Plug receiver",
     "25": "Radio motor",
+    "2A": "Radio motor (Lamellendach L60/L70)",
     "2E": "Actuator 230V UP",
     "63": "Web control",
 }
 
 # Blind device types (controllable covers)
-BLIND_DEVICE_TYPES = {"20", "21", "25", "2E"}
+# 2A = RADIO_MOTOR_L60_L70 (EDeviceType 42), the motor used by the slat-roof
+# (Lamellendach) products SLAT_ROOF_L60/L70/L70_TILTING. Confirmed from the
+#  WMS Studio Pro core (EDeviceType / EProductType enums).
+BLIND_DEVICE_TYPES = {"20", "21", "25", "2A", "2E"}
 
-# Device types that support slat tilt (in-wall actuators used for Raffstoren).
-# Plug receiver (21) and radio motor (25) drive awnings/roller shutters
-# without slats, so tilt is not exposed for them.
+# Device types that support slat tilt: the in-wall actuators used for Raffstoren
+# (20/2E) and the slat-roof motor (2A), whose louvres also tilt. Plug receiver
+# (21) and radio motor (25) drive awnings/roller shutters without slats, so tilt
+# is not exposed for them.
 #
 # Used ONLY as a fallback when we cannot read the per-device productType from
 # Block 37 (e.g. motor asleep during config_flow). The authoritative answer
 # comes from is_with_blinds in the device's productParameters.
-TILT_DEVICE_TYPES = {"20", "2E"}
+TILT_DEVICE_TYPES = {"20", "2A", "2E"}
 
 
 # Map productType (from motor Block 37 addr 12) to HA CoverDeviceClass strings.
@@ -94,4 +99,7 @@ PRODUCT_TYPE_TO_DEVICE_CLASS: dict[int, str] = {
     23: "awning",  # AwningTwoValancesOneOrTwoWindsensors
     24: "awning",  # SunSail
     25: "awning",  # PergolaAwning
+    27: "awning",  # SlatRoofL60 (Lamellendach)
+    28: "awning",  # SlatRoofL70 (Lamellendach)
+    29: "awning",  # SlatRoofL70Tilting (Lamellendach)
 }

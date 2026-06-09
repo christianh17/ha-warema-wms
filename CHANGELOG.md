@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-06-09
+
+### Added
+- **Lamellendach (slat-roof) support.** Warema slat-roof systems
+  (SlatRoofL60 / SlatRoofL70 / SlatRoofL70Tilting) are now discovered and
+  controllable. These products use a dedicated radio motor type
+  (`RADIO_MOTOR_L60_L70`, device type `2A`) that was previously filtered out of
+  the device-discovery wizard, so the roof never appeared as a selectable device
+  even though it answered the network scan. Device type `2A` is now recognised:
+  - added to `BLIND_DEVICE_TYPES` so the slat-roof motor shows up in the scan
+  - mapped to the `awning` HA cover device class with slat-tilt enabled
+  - product types `27`/`28`/`29` added to the product-name and tilt tables
+  The mapping was confirmed against the  WMS Studio Pro core
+  (`EDeviceType` / `EProductType` enums).
+
 ## [1.4.0] - 2026-05-29
 
 ### Added
