@@ -1,0 +1,43 @@
+name: 💡 Feature Request
+description: Suggest an idea or improvement for the integration
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Please describe the feature and the problem it solves.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to achieve? What's missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work?
+    validations:
+      required: false
+  - type: dropdown
+    id: device-type
+    attributes:
+      label: Related device type(s)
+      multiple: true
+      options:
+        - "20 – Actuator UP"
+        - "21 – Plug receiver"
+        - "25 – Radio motor"
+        - "2A – Radio motor (Lamellendach L60/L70)"
+        - "2E – Actuator 230V UP"
+        - "06 – Weather station"
+        - "Not device-specific"
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+    validations:
+      required: false
