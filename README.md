@@ -122,6 +122,7 @@ Any motor reachable from one of these WMS actuators:
 | **20** | Actuator UP |
 | **21** | Plug receiver |
 | **25** | Radio motor |
+| **2A** | Radio motor (Lamellendach L60/L70) |
 | **2E** | Actuator 230V UP |
 
 ### Weather stations (read-only)
@@ -267,17 +268,26 @@ Home Assistant uses different conventions than WMS:
 
 ## 🤝 Support & Contribution
 
-### Issues & Bugs
-Found a problem? Please report it on [GitHub Issues](https://github.com/mike-goldfinger/ha-warema-wms/issues) with:
-- Error logs from Home Assistant
-- Your hardware setup (device types, OS)
-- Steps to reproduce
+### 🐞 Bugs
 
-### Feature Requests
-Have an idea? Share it on [GitHub Discussions](https://github.com/mike-goldfinger/ha-warema-wms/discussions)
+Found a problem? [Open a bug report](https://github.com/mike-goldfinger/ha-warema-wms/issues/new?template=bug_report.yml). The form asks for:
+
+- Home Assistant and integration version
+- Your hardware setup (device types)
+- Steps to reproduce and relevant logs
+
+### 💡 Feature Requests
+
+Have an idea? [Open a feature request](https://github.com/mike-goldfinger/ha-warema-wms/issues/new?template=feature_request.yml) so it can be tracked and labelled.
+
+### 💬 Questions & Help
+
+For setup questions, usage help or general discussion, head to [GitHub Discussions](https://github.com/mike-goldfinger/ha-warema-wms/discussions).
 
 ### Want to Help?
+
 Contributions are welcome! See `CONTRIBUTING.md` for:
+
 - Development setup
 - Code quality standards (Black, Pylint)
 - Testing requirements
