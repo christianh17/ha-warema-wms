@@ -81,7 +81,25 @@
         "description": "Choose what you want to do.",
         "menu_options": {
           "rescan": "Scan for new devices",
-          "configure_firmware": "Configure motor firmware parameters"
+          "configure_firmware": "Configure motor firmware parameters",
+          "device_settings": "Display: position direction (awnings)"
+        }
+      },
+      "device_settings": {
+        "title": "Warema WMS – Display: position direction",
+        "description": "Pick the cover whose Home Assistant display direction you want to change. This is a display-only setting and does not change the motor.",
+        "data": {
+          "device": "Device"
+        }
+      },
+      "device_invert": {
+        "title": "Warema WMS – Position direction",
+        "description": "Invert the open/closed direction for this cover in Home Assistant.\n\nUse this for awnings (Markisen): by default a fully retracted awning reads as \"open\" because WMS reports it as position 0. Enabling inversion makes the retracted/home position read as \"closed\" and extending (shading) read as \"open\", with open/close commands matching.\n\nThis is a Home Assistant display setting only and does not touch the motor. To physically reverse the motor instead (also affects the handheld remote), use \"Configure motor firmware parameters → motor rotation direction\".",
+        "data": {
+          "invert_position": "Invert position (awning mode)"
+        },
+        "data_description": {
+          "invert_position": "When enabled: retracted = closed, extended = open."
         }
       },
       "select_devices": {
@@ -179,7 +197,7 @@
               "motor_rotation": "Reverse motor direction"
             },
             "data_description": {
-              "motor_rotation": "Reverses the motor rotation direction; enable if the blind moves up on a Down command or vice versa."
+              "motor_rotation": "Reverses the motor rotation direction; enable if the blind moves up on a Down command or vice versa. For a display-only reversal that does not change the motor, use Options → \"Display: position direction (awnings)\"."
             }
           }
         }

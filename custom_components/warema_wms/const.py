@@ -9,6 +9,15 @@ CONF_PAN_ID = "pan_id"
 CONF_NETWORK_KEY = "network_key"
 CONF_DEVICES = "devices"
 
+# Options entry keys
+# Per-device position inversion. Stored under entry.options as a dict keyed by
+# the device's string SNR -> bool. When True, the cover's open/closed direction
+# is mirrored in HA (display + commands) without touching the motor. Intended
+# for awnings (Markisen), where the retracted/home position is intuitively
+# "closed" while WMS reports it as 0 (= HA "open"). This is a HA-side display
+# convention only; the physical equivalent is the motor_rotation firmware param.
+OPT_INVERT_POSITION = "invert_position"
+
 # Default values
 DEFAULT_SERIAL_PORT = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AV0K28M2-if00-port0"
 DEFAULT_CHANNEL = 17

@@ -41,6 +41,7 @@ from .const import (
     BLIND_DEVICE_TYPES,
     CONF_DEVICES,
     DOMAIN,
+    OPT_INVERT_POSITION,
     PRODUCT_TYPE_TO_DEVICE_CLASS,
     TILT_DEVICE_TYPES,
 )
@@ -59,6 +60,9 @@ async def async_setup_entry(
     coordinator: WaremaCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities = []
+
+    # Per-device position inversion, keyed by string SNR (see OPT_INVERT_POSITION).
+    invert_map = entry.options.get(OPT_INVERT_POSITION, {})
 
     # Get devices from config entry data
     devices = entry.data.get(CONF_DEVICES, [])
@@ -88,6 +92,7 @@ async def async_setup_entry(
                         entry_id=entry.entry_id,
                         product_type=device.get("product_type"),
                         is_with_blinds=device.get("is_with_blinds"),
+                        invert=bool(invert_map.get(str(snr_int), False)),
                     )
                 )
     else:
@@ -113,6 +118,7 @@ async def async_setup_entry(
                         entry_id=entry.entry_id,
                         product_type=device.get("product_type"),
                         is_with_blinds=device.get("is_with_blinds"),
+                        invert=bool(invert_map.get(str(snr), False)),
                     )
                 )
 
@@ -156,14 +162,24 @@ def _supports_tilt_for(
     return device_type in TILT_DEVICE_TYPES
 
 
-def _wms_pos_to_ha(wms_pos: int) -> int:
-    """Convert WMS position (0=open, 100=closed) to HA (0=closed, 100=open)."""
-    return 100 - max(0, min(100, wms_pos))
+def _wms_pos_to_ha(wms_pos: int, invert: bool = False) -> int:
+    """Convert WMS position (0=open, 100=closed) to HA (0=closed, 100=open).
+
+    When ``invert`` is set the direction is mirrored (WMS 0 -> HA 0), so a
+    retracted awning (WMS 0) reads as "closed" instead of "open". The transform
+    is its own inverse, so this same flag is used in both directions.
+    """
+    wms = max(0, min(100, wms_pos))
+    return wms if invert else 100 - wms
 
 
-def _ha_pos_to_wms(ha_pos: int) -> int:
-    """Convert HA position (0=closed, 100=open) to WMS (0=open, 100=closed)."""
-    return 100 - max(0, min(100, ha_pos))
+def _ha_pos_to_wms(ha_pos: int, invert: bool = False) -> int:
+    """Convert HA position (0=closed, 100=open) to WMS (0=open, 100=closed).
+
+    See ``_wms_pos_to_ha`` for the meaning of ``invert``.
+    """
+    ha = max(0, min(100, ha_pos))
+    return ha if invert else 100 - ha
 
 
 def _wms_angle_to_ha_tilt(wms_angle: int) -> int:
@@ -208,6 +224,7 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         entry_id: str,
         product_type: int | None = None,
         is_with_blinds: bool | None = None,
+        invert: bool = False,
     ) -> None:
         """Initialize the cover entity."""
         super().__init__(coordinator, context=snr)
@@ -218,6 +235,9 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         self._entry_id = entry_id
         self._product_type = product_type
         self._is_with_blinds = is_with_blinds
+        # Per-device HA-side position inversion (e.g. awnings); see
+        # OPT_INVERT_POSITION. Mirrors displayed position + open/close commands.
+        self._invert = invert
 
         # Device class: prefer the per-device productType if known, otherwise
         # default to BLIND (matches the pre-product-type behaviour for the
@@ -284,7 +304,7 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         state = self._get_blind_state()
         if not state or state.position < 0:
             return None
-        return _wms_pos_to_ha(state.position)
+        return _wms_pos_to_ha(state.position, self._invert)
 
     @property
     def current_cover_tilt_position(self) -> int | None:
@@ -298,10 +318,16 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
 
     @property
     def is_closed(self) -> bool | None:
-        """Return True if cover is fully closed."""
+        """Return True if cover is fully closed.
+
+        "Closed" is HA position 0. Normally that maps to WMS 100; when this
+        device is inverted it maps to WMS 0 (e.g. a retracted awning).
+        """
         state = self._get_blind_state()
         if not state or state.position < 0:
             return None
+        if self._invert:
+            return state.position <= 0
         return state.position >= 100
 
     @property
@@ -317,9 +343,24 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         return bool(state and state.moving and self._command_is_closing)
 
     async def async_open_cover(self, **kwargs: Any) -> None:
-        """Open the cover (WMS position=0, angle=-100 = fully open)."""
-        _LOGGER.debug("WaremaCover: open_cover SNR=%d (%s)", self._snr, self._snr_hex)
-        await self.hass.async_add_executor_job(self.coordinator.open_cover, self._snr)
+        """Open the cover (HA "open").
+
+        Normally that is WMS position=0; for an inverted device (e.g. awning)
+        HA "open" = extended = WMS position=100, so route to the opposite
+        coordinator command.
+        """
+        _LOGGER.debug(
+            "WaremaCover: open_cover SNR=%d (%s) invert=%s",
+            self._snr,
+            self._snr_hex,
+            self._invert,
+        )
+        cmd = (
+            self.coordinator.close_cover
+            if self._invert
+            else self.coordinator.open_cover
+        )
+        await self.hass.async_add_executor_job(cmd, self._snr)
         # Track that we initiated opening (coordinator will update actual state)
         self._command_moving = True
         self._command_is_opening = True
@@ -327,9 +368,23 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         self.async_write_ha_state()
 
     async def async_close_cover(self, **kwargs: Any) -> None:
-        """Close the cover (WMS position=100, angle=100 = fully closed)."""
-        _LOGGER.debug("WaremaCover: close_cover SNR=%d (%s)", self._snr, self._snr_hex)
-        await self.hass.async_add_executor_job(self.coordinator.close_cover, self._snr)
+        """Close the cover (HA "closed").
+
+        Normally WMS position=100; for an inverted device HA "closed" =
+        retracted = WMS position=0, so route to the opposite command.
+        """
+        _LOGGER.debug(
+            "WaremaCover: close_cover SNR=%d (%s) invert=%s",
+            self._snr,
+            self._snr_hex,
+            self._invert,
+        )
+        cmd = (
+            self.coordinator.open_cover
+            if self._invert
+            else self.coordinator.close_cover
+        )
+        await self.hass.async_add_executor_job(cmd, self._snr)
         # Track that we initiated closing (coordinator will update actual state)
         self._command_moving = True
         self._command_is_opening = False
@@ -353,17 +408,20 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         WMS position: 0=open, 100=closed  (inverted)
         """
         ha_pos = kwargs[ATTR_POSITION]
-        wms_pos = _ha_pos_to_wms(ha_pos)
+        wms_pos = _ha_pos_to_wms(ha_pos, self._invert)
 
         state = self._get_blind_state()
-        current_wms = max(0, state.position if state else -1)
+        # Direction is tracked in HA terms (higher HA position = more open), so
+        # it stays correct regardless of inversion.
+        current_ha = self.current_cover_position
 
         _LOGGER.debug(
-            "WaremaCover: set_cover_position SNR=%d (%s) ha=%d wms=%d",
+            "WaremaCover: set_cover_position SNR=%d (%s) ha=%d wms=%d invert=%s",
             self._snr,
             self._snr_hex,
             ha_pos,
             wms_pos,
+            self._invert,
         )
 
         # Get current angle (or use 0 if unknown)
@@ -373,9 +431,12 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
             self.coordinator.set_position, self._snr, wms_pos, current_angle
         )
         self._command_moving = True
-        # Opening = moving toward WMS 0 (lower WMS value = more open)
-        self._command_is_opening = wms_pos < current_wms
-        self._command_is_closing = wms_pos > current_wms
+        if current_ha is not None:
+            self._command_is_opening = ha_pos > current_ha
+            self._command_is_closing = ha_pos < current_ha
+        else:
+            self._command_is_opening = False
+            self._command_is_closing = False
         self.async_write_ha_state()
 
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:

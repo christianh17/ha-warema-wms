@@ -61,6 +61,7 @@ from .const import (
     DISCOVERY_MODE_NEW_NETWORK,
     DISCOVERY_MODE_WANDSENDER,
     DOMAIN,
+    OPT_INVERT_POSITION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1155,6 +1156,7 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         self._fw_prefill = None  # MotorParameters used to fill the form
         self._fw_load_task = None  # asyncio task of the parameter read
         self._fw_ref_failed = False  # source unreadable -> warn in the form
+        self._ds_selected_snr: int | None = None  # device_settings: chosen device
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -1162,7 +1164,7 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         """Entry point: show a menu choosing rescan vs. firmware config."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["rescan", "configure_firmware"],
+            menu_options=["rescan", "configure_firmware", "device_settings"],
         )
 
     # ------------------------------------------------------------------
@@ -1241,6 +1243,61 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
             description_placeholders={
                 "device_count": str(len(self._discovered_devices)),
             },
+        )
+
+    # ------------------------------------------------------------------
+    # Per-device settings (HA-side position inversion)
+    # ------------------------------------------------------------------
+
+    async def async_step_device_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Pick a configured cover whose HA-side settings to edit."""
+        devices = [
+            d
+            for d in self.config_entry.data.get(CONF_DEVICES, [])
+            if d.get("device_type", "") in BLIND_DEVICE_TYPES
+            and d.get("snr") is not None
+        ]
+        if not devices:
+            return self.async_abort(reason="no_configurable_devices")
+
+        if user_input is not None:
+            try:
+                self._ds_selected_snr = int(user_input["device"])
+            except (KeyError, ValueError, TypeError):
+                return self.async_abort(reason="invalid_device")
+            return await self.async_step_device_invert()
+
+        device_options = {str(d["snr"]): self._device_label(d) for d in devices}
+        return self.async_show_form(
+            step_id="device_settings",
+            data_schema=vol.Schema({vol.Required("device"): vol.In(device_options)}),
+        )
+
+    async def async_step_device_invert(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Toggle HA-side position inversion for the chosen device."""
+        snr_key = str(self._ds_selected_snr)
+        invert_map = dict(self.config_entry.options.get(OPT_INVERT_POSITION, {}))
+
+        if user_input is not None:
+            invert_map[snr_key] = bool(user_input.get(OPT_INVERT_POSITION, False))
+            new_options = {
+                **self.config_entry.options,
+                OPT_INVERT_POSITION: invert_map,
+            }
+            # Persisting the options fires the update listener, which reloads the
+            # integration so the cover picks up the new direction.
+            return self.async_create_entry(title="", data=new_options)
+
+        current = bool(invert_map.get(snr_key, False))
+        return self.async_show_form(
+            step_id="device_invert",
+            data_schema=vol.Schema(
+                {vol.Optional(OPT_INVERT_POSITION, default=current): bool}
+            ),
         )
 
     # ------------------------------------------------------------------

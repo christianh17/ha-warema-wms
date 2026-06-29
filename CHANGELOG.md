@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Per-device position inversion (awning mode).** A new *Per-device settings →
+  Position direction* option in the options flow lets you mirror a cover's
+  open/closed direction in Home Assistant. Awnings (Markisen) report their
+  retracted/home position as WMS position 0, which maps to HA "open"; enabling
+  inversion makes the retracted position read as "closed" and extending
+  (shading) read as "open", with open/close/set-position commands matching.
+  This is a Home-Assistant-side display setting only and does not touch the
+  motor — the physical alternative remains the *motor rotation direction*
+  firmware parameter. Default is off, so existing setups are unchanged.
+  (Fixes #5.)
+
 ## [1.5.0] - 2026-06-09
 
 ### Added
