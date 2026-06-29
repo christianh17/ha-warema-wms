@@ -138,6 +138,19 @@ async def async_setup_entry(
                 )
             )
 
+        # Valance position sensors (read-only diagnostic)
+        for valance_num in (1, 2):
+            entities.append(
+                WaremaValanceSensor(
+                    coordinator=coordinator,
+                    snr=snr_int,
+                    snr_hex=snr_hex,
+                    device_type_str=device_type_str,
+                    entry_id=entry.entry_id,
+                    valance_num=valance_num,
+                )
+            )
+
     if entities:
         async_add_entities(entities)
         _LOGGER.info("Added %d Warema WMS sensor entities", len(entities))
@@ -388,3 +401,55 @@ class WaremaMotorInfoSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
         if params is None:
             return None
         return getattr(params, self._attr_key, None)
+
+
+class WaremaValanceSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
+    """Diagnostic sensor exposing valance position (read-only, 0-100 %)."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        snr_hex: str,
+        device_type_str: str,
+        entry_id: str,
+        valance_num: int,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._device_type_str = device_type_str
+        self._entry_id = entry_id
+        self._valance_num = valance_num
+
+        self._attr_name = f"Valance {valance_num}"
+        self._attr_icon = "mdi:window-shade"
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_valance_{valance_num}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            name=self._device_type_str,
+            manufacturer="Warema",
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Return valance position (0-100 %) or None if not present/available."""
+        if not self.coordinator.data:
+            return None
+        state = self.coordinator.data.get(self._snr)
+        if state is None:
+            return None
+        if self._valance_num == 1:
+            return state.valance_1
+        elif self._valance_num == 2:
+            return state.valance_2
+        return None

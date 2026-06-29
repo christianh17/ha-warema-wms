@@ -33,6 +33,7 @@ from .const import (
     TOPIC_WEATHER_BROADCAST,
     WATCH_MOVING_INTERVAL,
 )
+from .pywarema.protocol import pos_hex_to_percent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,6 +47,8 @@ class BlindState:
     position: int  # 0-100 (0=open, 100=closed), or -1=unknown
     angle: int  # -100 to +100
     moving: bool
+    valance_1: int | None = None  # 0-100%, or None if not present
+    valance_2: int | None = None  # 0-100%, or None if not present
 
     def __eq__(self, other: Any) -> bool:
         """Compare two BlindState objects for equality."""
@@ -57,6 +60,8 @@ class BlindState:
             and self.position == other.position
             and self.angle == other.angle
             and self.moving == other.moving
+            and self.valance_1 == other.valance_1
+            and self.valance_2 == other.valance_2
         )
 
 
@@ -416,6 +421,15 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
             position = payload.get("position", -1)
             angle = payload.get("angle", 0)
             moving = payload.get("moving", False)
+            # Valance positions are in hex (0x00-0xC8), convert to percent via pos_hex_to_percent
+            valance_1_hex = payload.get("valance_1")
+            valance_2_hex = payload.get("valance_2")
+            valance_1 = (
+                pos_hex_to_percent(valance_1_hex) if valance_1_hex and valance_1_hex != "FF" else None
+            )
+            valance_2 = (
+                pos_hex_to_percent(valance_2_hex) if valance_2_hex and valance_2_hex != "FF" else None
+            )
 
             # Build new data dict by copying current data and updating this SNR
             new_data = dict(self.data or {})
@@ -425,6 +439,8 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
                 position=position,
                 angle=angle,
                 moving=moving,
+                valance_1=valance_1,
+                valance_2=valance_2,
             )
 
             # Update coordinator data (thread-safe).

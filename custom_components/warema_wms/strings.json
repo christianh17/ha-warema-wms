@@ -230,5 +230,11 @@
     "button": {
       "identify": { "name": "Identify" }
     }
+  },
+  "entity_component": {
+    "sensor": {
+      "valance_1": { "name": "Valance 1" },
+      "valance_2": { "name": "Valance 2" }
+    }
   }
 }
