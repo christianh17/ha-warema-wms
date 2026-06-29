@@ -37,12 +37,13 @@ DEVICE_TYPE_STRINGS = {
     "20": "Actuator UP",
     "21": "Plug receiver",
     "25": "Radio motor",
+    "2A": "Radio motor (Lamellendach L60/L70)",
     "2E": "Actuator 230V UP",
     "63": "Web control",
 }
 
 # Device types that are controllable blinds/covers
-BLIND_DEVICE_TYPES = {"20", "21", "25", "2E"}
+BLIND_DEVICE_TYPES = {"20", "21", "25", "2A", "2E"}
 
 
 # ---------------------------------------------------------------------------
