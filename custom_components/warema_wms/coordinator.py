@@ -421,14 +421,18 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
             position = payload.get("position", -1)
             angle = payload.get("angle", 0)
             moving = payload.get("moving", False)
-            # Valance positions are in hex (0x00-0xC8), convert to percent via pos_hex_to_percent
+            # Valance hex → percent; 0xFF = unset (None)
             valance_1_hex = payload.get("valance_1")
             valance_2_hex = payload.get("valance_2")
             valance_1 = (
-                pos_hex_to_percent(valance_1_hex) if valance_1_hex and valance_1_hex != "FF" else None
+                pos_hex_to_percent(valance_1_hex)
+                if valance_1_hex and valance_1_hex != "FF"
+                else None
             )
             valance_2 = (
-                pos_hex_to_percent(valance_2_hex) if valance_2_hex and valance_2_hex != "FF" else None
+                pos_hex_to_percent(valance_2_hex)
+                if valance_2_hex and valance_2_hex != "FF"
+                else None
             )
 
             # Build new data dict by copying current data and updating this SNR
