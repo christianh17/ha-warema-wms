@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.6.0] - 2026-06-29
 
 ### Added
 - **Per-device position inversion (awning mode).** A new *Per-device settings →
@@ -15,6 +15,11 @@ All notable changes to this project will be documented in this file.
   motor — the physical alternative remains the *motor rotation direction*
   firmware parameter. Default is off, so existing setups are unchanged.
   (Fixes #5.)
+- **Read-only valance position sensors.** Valance position readings are now
+  exposed as diagnostic sensors (Valance 1 / Valance 2, 0–100 %). These
+  are read-only snapshots of the current valance tilt/position from the WMS
+  protocol. Full valance control (set position) is not yet supported pending
+  protocol reverse-engineering. (Partial support for #4.)
 
 ## [1.5.0] - 2026-06-09
 
