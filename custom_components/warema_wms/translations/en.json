@@ -222,19 +222,15 @@
     "sensor": {
       "weather_temperature": { "name": "Temperature" },
       "weather_wind_speed": { "name": "Wind speed" },
-      "weather_brightness": { "name": "Brightness" }
+      "weather_brightness": { "name": "Brightness" },
+      "valance_1": { "name": "Valance 1" },
+      "valance_2": { "name": "Valance 2" }
     },
     "binary_sensor": {
       "weather_rain": { "name": "Rain" }
     },
     "button": {
       "identify": { "name": "Identify" }
-    }
-  },
-  "entity_component": {
-    "sensor": {
-      "valance_1": { "name": "Valance 1" },
-      "valance_2": { "name": "Valance 2" }
     }
   }
 }
