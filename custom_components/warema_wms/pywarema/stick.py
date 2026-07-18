@@ -106,6 +106,11 @@ class BlindPosition:
     pos: int = 0  # 0-100 (0=open, 100=closed)
     ang: int = 0  # -100 to +100
     moving: bool = False
+    # Raw valance position hex from the position frame ('00'-'C8', or 'FF' =
+    # not present). Kept as the wire hex so the coordinator can apply the same
+    # 0xFF-is-unset handling it uses for the main position.
+    valance_1: str | None = None
+    valance_2: str | None = None
 
     def equals(self, other: "BlindPosition") -> bool:
         """Check equality."""
@@ -113,6 +118,8 @@ class BlindPosition:
             self.pos == other.pos
             and self.ang == other.ang
             and self.moving == other.moving
+            and self.valance_1 == other.valance_1
+            and self.valance_2 == other.valance_2
         )
 
 
@@ -402,6 +409,8 @@ class WmsStick:
                     pos=p.get("position", blind.pos_current.pos),
                     ang=ang,
                     moving=p.get("moving", False),
+                    valance_1=p.get("valance_1", blind.pos_current.valance_1),
+                    valance_2=p.get("valance_2", blind.pos_current.valance_2),
                 )
                 self._update_blind_pos(blind, new_pos)
 
@@ -449,6 +458,8 @@ class WmsStick:
                     pos=blind.pos_current.pos,
                     ang=blind.pos_requested.ang,
                     moving=True,
+                    valance_1=blind.pos_current.valance_1,
+                    valance_2=blind.pos_current.valance_2,
                 )
                 self._update_blind_pos(blind, new_pos)
             if on_complete:
@@ -1319,6 +1330,8 @@ class WmsStick:
                         "position": blind.pos_current.pos,
                         "angle": blind.pos_current.ang,
                         "moving": blind.pos_current.moving,
+                        "valance_1": blind.pos_current.valance_1,
+                        "valance_2": blind.pos_current.valance_2,
                     },
                 },
             )

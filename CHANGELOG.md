@@ -2,7 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.6.0] - 2026-06-29
+## [1.6.1] - 2026-07-18
+
+### Fixed
+- **Valance position sensors never updated in Home Assistant.** The read-only
+  valance sensors added in 1.6.0 always stayed *Unknown*: the WMS position frame
+  decodes `valance_1`/`valance_2` correctly, but the stick dropped them when
+  building the `wms-vb-blind-position-update` payload, so the coordinator only
+  ever saw `None`. The values are now carried on `BlindPosition` and forwarded
+  in the payload. In addition, valance readings are now part of the position
+  equality check, so moving a valance while the awning stays put actually emits
+  an update instead of being suppressed as "no change". (Fixes #4.)
 
 ### Added
 - **Per-device position inversion (awning mode).** A new *Per-device settings →
