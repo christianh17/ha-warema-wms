@@ -250,6 +250,41 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
                 sum(1 for d in devices if d.get("product_type") is not None),
             )
 
+        self._log_device_inventory()
+
+    def _log_device_inventory(self) -> None:
+        """Log one identifying line per device.
+
+        Written at INFO so it is available without enabling debug logging: it
+        is the quickest way to tell what a device actually reports (product
+        type, tilt capability, which platform it ends up on) when diagnosing a
+        device that does not behave as expected.
+        """
+        if not self.stick:
+            return
+        from .pywarema.device_types import platform_for_device_type
+        from .pywarema.protocol import product_type_name
+
+        by_snr = {
+            int(d["snr"]): d
+            for d in self.entry.data.get(CONF_DEVICES, [])
+            if d.get("snr") is not None
+        }
+        for blind in self.stick.get_blinds():
+            stored = by_snr.get(blind.snr, {})
+            device_type = stored.get("device_type", "")
+            _LOGGER.info(
+                "WMS device %s: device_type=%s (%s) product_type=%s (%s) "
+                "is_with_blinds=%s platform=%s",
+                blind.snr_hex,
+                device_type or "?",
+                stored.get("device_type_str", "?"),
+                blind.product_type,
+                product_type_name(blind.product_type),
+                blind.is_with_blinds,
+                platform_for_device_type(device_type) or "?",
+            )
+
     async def async_refresh_motor_params(self) -> None:
         """Read motor parameters (block 38 + block 81) for all blinds.
 

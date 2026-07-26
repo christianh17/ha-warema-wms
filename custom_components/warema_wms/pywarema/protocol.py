@@ -548,6 +548,12 @@ def decode_frame(raw: str) -> dict:
                 params["valance_1"] = payload[12:14]
                 params["valance_2"] = payload[14:16]
                 params["moving"] = payload[16:18] != "00"
+                # Raw state bytes, kept alongside the decoded values. Byte 0
+                # and byte 1 are product-dependent (a position axis, a slat
+                # angle or unused), so the raw values are what identifies how
+                # a device reports its state. 0xFF means "not available".
+                params["position_raw"] = int(_pos_hex, 16)
+                params["angle_raw"] = int(_angle_hex, 16)
             elif param_type == "0C000006":
                 # Auto modes & limits (wind/rain/sun/dusk threshold values + operating mode)
                 msg_type = "autoSettings"

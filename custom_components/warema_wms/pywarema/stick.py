@@ -399,6 +399,21 @@ class WmsStick:
             # error is "" (empty string) on success, "timeout" on timeout
             if error != "timeout" and msg_rcv:
                 p = msg_rcv.get("params", {})
+                # Log the raw state bytes: byte 0 and byte 1 are product-
+                # dependent, so their raw values (and the values they take at
+                # the physical end positions) are what tells us how a given
+                # device reports position and slat angle.
+                _LOGGER.debug(
+                    "WMS pos frame %s: byte0=0x%02X byte1=0x%02X moving=%s "
+                    "-> pos=%s angle=%s product_type=%s",
+                    blind.snr_hex,
+                    p.get("position_raw", 0xFF),
+                    p.get("angle_raw", 0xFF),
+                    p.get("moving"),
+                    p.get("position"),
+                    p.get("angle"),
+                    blind.product_type,
+                )
                 # The position poll cannot read the slat angle back while the
                 # blind is raised (angle == None). Keep the last known angle in
                 # that case instead of discarding it.
@@ -668,6 +683,18 @@ class WmsStick:
             # [0] runTimeUp, [1] runTimeDown, [2-5] padding/unknown,
             # [6] calibrationUp, [7] calibrationDown, [8] tiltingTime,
             # [9] minAngle, [10] maxAngle, [11] tiltingSteps, [12] motorRotation
+            #
+            # This layout applies to the actuators driving blinds, shutters and
+            # awnings. Slat-roof motors lay out block 38 differently, so the
+            # raw bytes are logged to make the difference visible.
+            _LOGGER.debug(
+                "WMS block38[%d..%d] for %s: %s (product_type=%s)",
+                ADDR_RUN_TIME_UP,
+                ADDR_RUN_TIME_UP + len(data) - 1,
+                blind.snr_hex,
+                data.hex(),
+                blind.product_type,
+            )
             if len(data) >= 13:
                 params.run_time_up = None if data[0] == 0xFF else int(data[0])
                 params.run_time_down = None if data[1] == 0xFF else int(data[1])

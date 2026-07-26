@@ -149,7 +149,8 @@
       "weather_wind_speed": { "name": "Windgeschwindigkeit" },
       "weather_brightness": { "name": "Helligkeit" },
       "valance_1": { "name": "Volant 1" },
-      "valance_2": { "name": "Volant 2" }
+      "valance_2": { "name": "Volant 2" },
+      "product_type": { "name": "Produkttyp" }
     },
     "binary_sensor": {
       "weather_rain": { "name": "Regen" }
