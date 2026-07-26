@@ -23,12 +23,13 @@
 ## ✨ Features
 
 - 🪟 **Full blind control** — Open, close, stop, set position and tilt angle
+- 💡 **Light control** — WMS dimming actuators as dimmable light entities (brightness + on/off)
 - 📊 **Real-time monitoring** — Position, angle, and motion detection sensors
 - 🌦️ **Weather station support** — Temperature, wind, brightness and rain sensors, auto-discovered from WMS weather-station broadcasts
 - 🔦 **Identify button** — Briefly waves a blind so you can match an entity to the physical device
 - 🔌 **USB auto-detection** — Plug in your Warema WMS Stick and go
 - ⚙️ **Easy setup wizard** — Multiple discovery methods (manual, Wandsender pairing, new network)
-- 🌍 **Multiple device support** — Works with Type 20, 21, 25, and 2E actuators
+- 🌍 **Multiple device support** — Works with Type 20, 21, 25, 2A and 2E cover actuators plus Type 26, 28 and 31 dimmers
 - 🎯 **Native Home Assistant integration** — Full cover entity support with all features
 - 🐍 **Native Python integration** — Pure Python, no external bridge, add-on or MQTT broker required
 - 🔐 **Local control only** — No cloud dependency, all communication is local
@@ -125,6 +126,18 @@ Any motor reachable from one of these WMS actuators:
 | **2A** | Radio motor (Lamellendach L60/L70) |
 | **2E** | Actuator 230V UP |
 
+### Dimming actuators (light entities)
+
+WMS dimming actuators are stand-alone devices with their own serial number —
+a light is never a sub-channel of a motor. They are discovered by the same
+scan as the cover actuators and exposed as dimmable light entities:
+
+| Type | Description |
+|------|-------------|
+| **26** | Dimmer |
+| **28** | Dimmer (smart) |
+| **31** | Dimmer 0-10 V |
+
 ### Weather stations (read-only)
 
 A WMS weather station (type **06**) is supported as a monitoring device: the
@@ -189,6 +202,9 @@ Each blind appears as a `cover` entity with:
 - **Motor SNR** — Serial number (6-digit hex)
 - **WMS Position** — Raw position from device
 - **WMS Angle** — Raw tilt angle from device
+- **Product type** *(diagnostic)* — The product type the device reports
+  (e.g. `28 SlatRoofL70`). This is the field to quote in a support request,
+  since it decides how the device is driven.
 
 ### Binary Sensor Entities
 - **Moving** — `on` if blind is moving, `off` if stopped
@@ -196,6 +212,22 @@ Each blind appears as a `cover` entity with:
 ### Button Entities
 - **Identify** — Sends a wave/beckon so the blind briefly moves, to help you
   match the entity to the physical device
+
+### Light Entities
+
+WMS dimming actuators (types 26, 28, 31) are exposed as dimmable lights:
+
+| Control | Range | Notes |
+|---------|-------|-------|
+| **On / Off** | — | Off sends level 0 (a real off, not a minimum glow) |
+| **Brightness** | 0–100% | Turning on without a brightness restores the last level |
+
+Brightness only — the WMS protocol carries no colour information, so there is
+no colour control.
+
+On an existing setup, dimmers are picked up via
+**Configure → Add new devices** (a fresh scan is needed; existing devices and
+entities are unaffected).
 
 ### Weather Station Entities
 

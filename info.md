@@ -11,7 +11,8 @@ Control your Warema WMS blinds and shades directly via the **Warema WMS USB Stic
 | Entity | Description |
 |--------|-------------|
 | **Cover** | Open / close / stop / set position and tilt angle |
-| **Sensor** | Position, tilt angle and motor serial number |
+| **Light** | WMS dimming actuators — brightness and on/off |
+| **Sensor** | Position, tilt angle, motor serial number and product type |
 | **Binary sensor** | Moving / stopped |
 | **Button** | Identify — waves the blind so you can match it to an entity |
 | **Weather station** | Temperature, wind speed, brightness and rain (auto-discovered) |
@@ -24,7 +25,8 @@ Slat tilt is enabled automatically for products with slats (Raffstoren, Venetian
 
 - **Warema WMS USB Stick** (FTDI FT232R, USB VID `0403` / PID `6001`)
 - Home Assistant **2023.1.0** or later
-- Supported actuator types: **20** (Actuator UP), **21** (Plug receiver), **25** (Radio motor), **2E** (Actuator 230V UP)
+- Supported cover actuator types: **20** (Actuator UP), **21** (Plug receiver), **25** (Radio motor), **2A** (Radio motor Lamellendach), **2E** (Actuator 230V UP)
+- Supported dimming actuator types (light entities): **26** (Dimmer), **28** (Dimmer smart), **31** (Dimmer 0-10 V)
 
 ---
 
