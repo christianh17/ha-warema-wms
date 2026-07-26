@@ -24,26 +24,26 @@ import math
 from dataclasses import dataclass
 from typing import Optional, Union
 
+# Device type table and platform routing live in device_types.py. Re-exported
+# here so existing importers of protocol.DEVICE_TYPE_STRINGS keep working.
+from .device_types import (
+    BLIND_DEVICE_TYPES,
+    COVER_DEVICE_TYPES,
+    DEVICE_TYPE_STRINGS,
+    LIGHT_DIMMER_DEVICE_TYPES,
+    SUPPORTED_DEVICE_TYPES,
+    TILT_DEVICE_TYPES,
+    device_type_name,
+    is_cover_device,
+    is_light_device,
+    is_supported_device,
+    platform_for_device_type,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 # Angle scaling constant (from JS: const wmsAngle = 75)
 WMS_ANGLE = 75
-
-# Device type strings
-DEVICE_TYPE_STRINGS = {
-    "02": "Stick/software",
-    "06": "Weather station",
-    "07": "Remote control (+)",
-    "20": "Actuator UP",
-    "21": "Plug receiver",
-    "25": "Radio motor",
-    "2A": "Radio motor (Lamellendach L60/L70)",
-    "2E": "Actuator 230V UP",
-    "63": "Web control",
-}
-
-# Device types that are controllable blinds/covers
-BLIND_DEVICE_TYPES = {"20", "21", "25", "2A", "2E"}
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +196,37 @@ def angle_hex_to_percent(ang_hex: str) -> int:
 # to None.
 
 MOTOR_PARAM_BLOCK = 38
+
+# Products whose block 38 uses a DIFFERENT address layout than the one mapped
+# out below. The addresses here describe the actuators driving blinds, shutters
+# and awnings; on a slat roof the same region holds the louvre angle limits and
+# the sensor assignments instead, and on a dimmer it holds the dimming settings.
+#
+# Reading - and above all writing - those addresses on such a device would hit
+# unrelated parameters, so the motor parameter helpers refuse to touch them.
+PRODUCT_TYPES_WITH_OTHER_PARAM_LAYOUT: set[int] = {
+    16,  # LightSwitching
+    17,  # LoadSwitching
+    18,  # LightDimming
+    19,  # LoadDimming
+    20,  # PlugSocketSwitching
+    26,  # LedDimmable
+    27,  # SlatRoofL60 (Lamellendach)
+    28,  # SlatRoofL70 (Lamellendach)
+    29,  # SlatRoofL70Tilting (Lamellendach)
+    30,  # FloatingOutput
+}
+
+
+def has_standard_param_layout(product_type: int | None) -> bool:
+    """Return True when block 38 uses the address layout mapped out here.
+
+    Unknown product types (None) are treated as standard: that is the state
+    before the product info has been read, and it preserves the behaviour this
+    integration had before the check existed.
+    """
+    return product_type not in PRODUCT_TYPES_WITH_OTHER_PARAM_LAYOUT
+
 
 # Block 38 addresses for the persistent motor parameters.
 ADDR_COMMON_IS_ABSENT = 1
@@ -362,6 +393,18 @@ def encode_cmd(cmd: str, snr, params: dict) -> dict:
             + pos_percent_to_hex(pos)
             + angle_percent_to_hex(ang)
             + "FFFF}"
+        )
+
+    elif cmd == "lightSetLevel":
+        # Brightness for a dimming actuator. Same command and same encoding as
+        # a motor position (percent * 2) in the first setting byte; the
+        # remaining settings are 0xFF ("leave unchanged"), which on a dimmer
+        # keeps its configured dimming speed and level limits untouched.
+        level = params.get("level", 0)
+        result["expect"]["msg_type"] = "blindMoveToPosResponse"
+        result["expect"]["snr"] = snr_hex
+        result["cmd"] = (
+            "{R06" + snr_hex + "7070" + "03" + pos_percent_to_hex(level) + "FFFFFF}"
         )
 
     elif cmd == "blindStopMove":
@@ -548,6 +591,12 @@ def decode_frame(raw: str) -> dict:
                 params["valance_1"] = payload[12:14]
                 params["valance_2"] = payload[14:16]
                 params["moving"] = payload[16:18] != "00"
+                # Raw state bytes, kept alongside the decoded values. Byte 0
+                # and byte 1 are product-dependent (a position axis, a slat
+                # angle or unused), so the raw values are what identifies how
+                # a device reports its state. 0xFF means "not available".
+                params["position_raw"] = int(_pos_hex, 16)
+                params["angle_raw"] = int(_angle_hex, 16)
             elif param_type == "0C000006":
                 # Auto modes & limits (wind/rain/sun/dusk threshold values + operating mode)
                 msg_type = "autoSettings"

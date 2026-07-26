@@ -224,7 +224,8 @@
       "weather_wind_speed": { "name": "Wind speed" },
       "weather_brightness": { "name": "Brightness" },
       "valance_1": { "name": "Valance 1" },
-      "valance_2": { "name": "Valance 2" }
+      "valance_2": { "name": "Valance 2" },
+      "product_type": { "name": "Product type" }
     },
     "binary_sensor": {
       "weather_rain": { "name": "Rain" }

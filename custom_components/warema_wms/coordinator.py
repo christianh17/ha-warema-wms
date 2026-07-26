@@ -23,7 +23,7 @@ from .const import (
     CONF_NETWORK_KEY,
     CONF_PAN_ID,
     CONF_SERIAL_PORT,
-    BLIND_DEVICE_TYPES,
+    SUPPORTED_DEVICE_TYPES,
     DOMAIN,
     POS_UPDATE_INTERVAL,
     SIGNAL_NEW_WEATHER_STATION,
@@ -144,7 +144,7 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         for device in devices:
             snr = device.get("snr")
             device_type = device.get("device_type", "20")
-            if device_type in BLIND_DEVICE_TYPES and snr is not None:
+            if device_type in SUPPORTED_DEVICE_TYPES and snr is not None:
                 snr_int = int(snr) if not isinstance(snr, int) else snr
                 name = device.get("device_type_str", "Blind") + f" {snr_int}"
                 _LOGGER.info(
@@ -184,7 +184,7 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         for device in devices:
             snr = device.get("snr")
             device_type = device.get("device_type", "20")
-            if device_type in BLIND_DEVICE_TYPES and snr is not None:
+            if device_type in SUPPORTED_DEVICE_TYPES and snr is not None:
                 snr_int = int(snr) if not isinstance(snr, int) else snr
                 _LOGGER.debug(
                     "WaremaCoordinator: Requesting initial position for SNR=%d",
@@ -248,6 +248,41 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
             _LOGGER.info(
                 "WaremaCoordinator: persisted product info for %d device(s)",
                 sum(1 for d in devices if d.get("product_type") is not None),
+            )
+
+        self._log_device_inventory()
+
+    def _log_device_inventory(self) -> None:
+        """Log one identifying line per device.
+
+        Written at INFO so it is available without enabling debug logging: it
+        is the quickest way to tell what a device actually reports (product
+        type, tilt capability, which platform it ends up on) when diagnosing a
+        device that does not behave as expected.
+        """
+        if not self.stick:
+            return
+        from .pywarema.device_types import platform_for_device_type
+        from .pywarema.protocol import product_type_name
+
+        by_snr = {
+            int(d["snr"]): d
+            for d in self.entry.data.get(CONF_DEVICES, [])
+            if d.get("snr") is not None
+        }
+        for blind in self.stick.get_blinds():
+            stored = by_snr.get(blind.snr, {})
+            device_type = stored.get("device_type", "")
+            _LOGGER.info(
+                "WMS device %s: device_type=%s (%s) product_type=%s (%s) "
+                "is_with_blinds=%s platform=%s",
+                blind.snr_hex,
+                device_type or "?",
+                stored.get("device_type_str", "?"),
+                blind.product_type,
+                product_type_name(blind.product_type),
+                blind.is_with_blinds,
+                platform_for_device_type(device_type) or "?",
             )
 
     async def async_refresh_motor_params(self) -> None:
@@ -370,6 +405,16 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         """
         if self.stick:
             self.stick.blind_set_position(snr, 100, 100)
+
+    def set_light_level(self, snr: int, level: int) -> None:
+        """Set the brightness of a dimming actuator.
+
+        Args:
+            snr: Integer serial number of the device.
+            level: 0-100 (0 = off, 100 = full brightness).
+        """
+        if self.stick:
+            self.stick.light_set_level(snr, level)
 
     def get_position(self, snr: int) -> None:
         """Request current position of a blind.

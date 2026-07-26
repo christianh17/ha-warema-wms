@@ -49,34 +49,22 @@ TOPIC_WEATHER_BROADCAST = "wms-vb-rcv-weather-broadcast"
 # Carries the station's integer SNR; formatted per config entry at use site.
 SIGNAL_NEW_WEATHER_STATION = f"{DOMAIN}_new_weather_station"
 
-# Device type strings
-DEVICE_TYPE_STRINGS = {
-    "02": "Stick/software",
-    "06": "Weather station",
-    "07": "Remote control (+)",
-    "20": "Actuator UP",
-    "21": "Plug receiver",
-    "25": "Radio motor",
-    "2A": "Radio motor (Lamellendach L60/L70)",
-    "2E": "Actuator 230V UP",
-    "63": "Web control",
-}
-
-# Blind device types (controllable covers)
-# 2A = RADIO_MOTOR_L60_L70 (EDeviceType 42), the motor used by the slat-roof
-# (Lamellendach) products SLAT_ROOF_L60/L70/L70_TILTING.
-BLIND_DEVICE_TYPES = {"20", "21", "25", "2A", "2E"}
-
-# Device types that support slat tilt: the in-wall actuators used for Raffstoren
-# (20/2E) and the slat-roof motor (2A), whose louvres also tilt. Plug receiver
-# (21) and radio motor (25) drive awnings/roller shutters without slats, so tilt
-# is not exposed for them.
-#
-# Used ONLY as a fallback when we cannot read the per-device productType from
-# Block 37 (e.g. motor asleep during config_flow). The authoritative answer
-# comes from is_with_blinds in the device's productParameters.
-TILT_DEVICE_TYPES = {"20", "2A", "2E"}
-
+# Device type table, platform routing and the tilt fallback set live in
+# pywarema.device_types (single source of truth, importable without HA).
+# Re-exported here because the HA-side modules import them from const.
+from .pywarema.device_types import (  # noqa: F401  (re-export)
+    BLIND_DEVICE_TYPES,
+    COVER_DEVICE_TYPES,
+    DEVICE_TYPE_STRINGS,
+    LIGHT_DIMMER_DEVICE_TYPES,
+    SUPPORTED_DEVICE_TYPES,
+    TILT_DEVICE_TYPES,
+    device_type_name,
+    is_cover_device,
+    is_light_device,
+    is_supported_device,
+    platform_for_device_type,
+)
 
 # Map productType (from motor Block 37 addr 12) to HA CoverDeviceClass strings.
 # Kept as strings here to avoid importing homeassistant from const.py - cover.py

@@ -49,7 +49,7 @@ from .protocol import (
     ADDR_RUN_TIME_UP,
     ADDR_TILTING_STEPS,
     ADDR_TILTING_TIME,
-    BLIND_DEVICE_TYPES,
+    SUPPORTED_DEVICE_TYPES,
     MOTOR_PARAM_BLOCK,
     PRODUCT_ADDR,
     PRODUCT_BLOCK,
@@ -57,6 +57,7 @@ from .protocol import (
     SW_INFO_ADDR,
     SW_INFO_BLOCK,
     SW_INFO_SIZE,
+    has_standard_param_layout,
     MotorParameters,
     decode_frame,
     encode_cmd,
@@ -82,6 +83,7 @@ DELAY_MSG_PROC = 0.005  # 5 ms
 CMD_SETTINGS = {
     "blindGetPos": {"timeout": 0.500, "delay_after": 0.100, "retry": 5},
     "blindMoveToPos": {"timeout": 0.500, "delay_after": 0.300, "retry": 3},
+    "lightSetLevel": {"timeout": 0.500, "delay_after": 0.300, "retry": 3},
     "blindStopMove": {"timeout": 0.200, "delay_after": 0.005, "retry": 3},
     "waveRequest": {"timeout": 0.500, "delay_after": 0.300, "retry": -1},
     "scanRequest": {"timeout": 0.750, "delay_after": 0.000, "retry": -1},
@@ -399,6 +401,21 @@ class WmsStick:
             # error is "" (empty string) on success, "timeout" on timeout
             if error != "timeout" and msg_rcv:
                 p = msg_rcv.get("params", {})
+                # Log the raw state bytes: byte 0 and byte 1 are product-
+                # dependent, so their raw values (and the values they take at
+                # the physical end positions) are what tells us how a given
+                # device reports position and slat angle.
+                _LOGGER.debug(
+                    "WMS pos frame %s: byte0=0x%02X byte1=0x%02X moving=%s "
+                    "-> pos=%s angle=%s product_type=%s",
+                    blind.snr_hex,
+                    p.get("position_raw", 0xFF),
+                    p.get("angle_raw", 0xFF),
+                    p.get("moving"),
+                    p.get("position"),
+                    p.get("angle"),
+                    blind.product_type,
+                )
                 # The position poll cannot read the slat angle back while the
                 # blind is raised (angle == None). Keep the last known angle in
                 # that case instead of discarding it.
@@ -466,6 +483,56 @@ class WmsStick:
                 on_complete(error, msg_sent, msg_rcv)
 
         msg = WmsMessage("blindMoveToPos", blind.snr, {"pos": position, "ang": angle})
+        msg.on_end = _on_complete
+        self._enqueue(msg, priority=True)
+        threading.Timer(DELAY_MSG_PROC, self._process_queue).start()
+
+    def light_set_level(
+        self,
+        blind_id,
+        level: int,
+        on_complete: Optional[Callable] = None,
+    ) -> None:
+        """Set the brightness of a dimming actuator.
+
+        A dimming actuator carries its brightness in the same state byte and
+        with the same encoding a motor uses for its position (percent * 2), and
+        it is driven by the same command. Setting brightness is therefore the
+        position command applied to a dimmer, which is why the two share this
+        code path.
+
+        Args:
+            blind_id: snr, snr_hex, or name
+            level: 0-100 (0 = off, 100 = full brightness)
+            on_complete: Optional callback(error, msg_sent, msg_rcv).
+        """
+        level = max(0, min(100, int(level)))
+        device = self._get_blind(blind_id)
+        if not device:
+            _LOGGER.warning(
+                "WmsStick: light_set_level: Cannot find device '%s'", blind_id
+            )
+            return
+
+        device.pos_requested = BlindPosition(pos=level, ang=0, moving=True)
+
+        def _on_complete(error, msg_sent, msg_rcv):
+            if error != "timeout":
+                # Adopt the commanded level right away so the light reports the
+                # requested brightness before the next poll comes in.
+                new_pos = BlindPosition(
+                    pos=level,
+                    ang=device.pos_current.ang,
+                    moving=False,
+                    valance_1=device.pos_current.valance_1,
+                    valance_2=device.pos_current.valance_2,
+                )
+                self._update_blind_pos(device, new_pos)
+            if on_complete:
+                on_complete(error, msg_sent, msg_rcv)
+
+        _LOGGER.debug("WmsStick: light_set_level %s -> %d%%", device.snr_hex, level)
+        msg = WmsMessage("lightSetLevel", device.snr, {"level": level})
         msg.on_end = _on_complete
         self._enqueue(msg, priority=True)
         threading.Timer(DELAY_MSG_PROC, self._process_queue).start()
@@ -615,6 +682,15 @@ class WmsStick:
             )
             return None
 
+        if not has_standard_param_layout(blind.product_type):
+            _LOGGER.debug(
+                "WmsStick: read_motor_parameters: skipping %s, product type %s "
+                "lays out block 38 differently",
+                blind.snr_hex,
+                blind.product_type,
+            )
+            return None
+
         params = MotorParameters()
         done = threading.Event()
         remaining = [6]
@@ -668,6 +744,18 @@ class WmsStick:
             # [0] runTimeUp, [1] runTimeDown, [2-5] padding/unknown,
             # [6] calibrationUp, [7] calibrationDown, [8] tiltingTime,
             # [9] minAngle, [10] maxAngle, [11] tiltingSteps, [12] motorRotation
+            #
+            # This layout applies to the actuators driving blinds, shutters and
+            # awnings. Slat-roof motors lay out block 38 differently, so the
+            # raw bytes are logged to make the difference visible.
+            _LOGGER.debug(
+                "WMS block38[%d..%d] for %s: %s (product_type=%s)",
+                ADDR_RUN_TIME_UP,
+                ADDR_RUN_TIME_UP + len(data) - 1,
+                blind.snr_hex,
+                data.hex(),
+                blind.product_type,
+            )
             if len(data) >= 13:
                 params.run_time_up = None if data[0] == 0xFF else int(data[0])
                 params.run_time_down = None if data[1] == 0xFF else int(data[1])
@@ -943,6 +1031,18 @@ class WmsStick:
         if not blind:
             _LOGGER.warning(
                 "WmsStick: write_motor_parameters: Cannot find blind '%s'", blind_id
+            )
+            return False
+
+        if not has_standard_param_layout(blind.product_type):
+            # Refuse rather than write: on these products the addresses below
+            # belong to unrelated parameters, so a write would silently change
+            # the wrong settings.
+            _LOGGER.warning(
+                "WmsStick: write_motor_parameters: refusing to write to %s, "
+                "product type %s lays out block 38 differently",
+                blind.snr_hex,
+                blind.product_type,
             )
             return False
 
@@ -1418,7 +1518,7 @@ class WmsStick:
         if auto_assign_blinds:
             self._blinds = {}
             for dev in devices:
-                if dev.get("device_type", "") in BLIND_DEVICE_TYPES:
+                if dev.get("device_type", "") in SUPPORTED_DEVICE_TYPES:
                     self.blind_add(
                         dev["snr"],
                         f"{dev['device_type_str']} {dev['snr']} ({dev['snr_hex']})",

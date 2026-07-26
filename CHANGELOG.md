@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] - 2026-07-26
+
+### Added
+- **Light entities for WMS dimming actuators.** Dimmers (device types 26, 28
+  and 31) are now discovered and exposed as dimmable lights with brightness
+  (0–100 %) and on/off. A WMS light is always a stand-alone actuator with its
+  own serial number — it is never a sub-channel of a motor — and it answers
+  the same scan as any other device; the integration simply filtered it out
+  and had no light platform. Brightness only: the protocol carries no colour
+  information. Existing configurations are unchanged — run *Configure → Add
+  new devices* to pick up dimmers. (Fixes #8; resolves the LED part of #4.)
+- **Product type diagnostic sensor.** Every device now shows the product type
+  it reports (e.g. `28 SlatRoofL70`) under *Diagnostics*, with the raw
+  device/product type fields as attributes. This is the field that decides how
+  a device is driven, and the one to quote in a support request. Startup also
+  logs one identifying line per device at INFO, and the position poll logs the
+  raw state bytes at DEBUG.
+
+### Fixed
+- **Firmware parameter editor guarded against differing block-38 layouts.**
+  The block-38 addresses the editor reads and writes are correct for the
+  actuators driving blinds, shutters and awnings, but slat roofs and dimmers
+  lay that block out differently — a write would have silently changed
+  unrelated parameters (on a slat roof, run times would land on the louvre
+  angle limits). Reading and writing motor parameters is now refused for
+  those products, and they no longer appear in the editor's device picker.
+
+### Note on slat roofs (issue #7)
+This release does **not** yet fix stepwise slat-roof control. It ships the
+diagnostics needed to finish that fix: the *Product type* sensor identifies
+which slat-roof variant a system reports, and the debug log now shows the raw
+angle values at the physical end positions. If you own a slat roof, please
+report those values on issue #7 — the tilt fix lands in the next release.
+
 ## [1.6.1] - 2026-07-18
 
 ### Fixed

@@ -9,6 +9,7 @@ Exposes per-blind sensors:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -31,10 +32,11 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    BLIND_DEVICE_TYPES,
+    COVER_DEVICE_TYPES,
     CONF_DEVICES,
     DOMAIN,
     SIGNAL_NEW_WEATHER_STATION,
+    SUPPORTED_DEVICE_TYPES,
 )
 from .coordinator import WaremaCoordinator
 
@@ -89,13 +91,30 @@ async def async_setup_entry(
 
     for device in entry.data.get(CONF_DEVICES, []):
         device_type = device.get("device_type", "20")
-        if device_type not in BLIND_DEVICE_TYPES:
+        if device_type not in SUPPORTED_DEVICE_TYPES:
             continue
 
         snr = device.get("snr")
         snr_hex = device.get("snr_hex", "")
         device_type_str = device.get("device_type_str", "Blind")
         snr_int = int(snr) if not isinstance(snr, int) else snr
+
+        # Product type diagnostic - created for every supported device, since
+        # it is the field we need to identify what a device actually is.
+        entities.append(
+            WaremaProductTypeSensor(
+                snr=snr_int,
+                snr_hex=snr_hex,
+                device_type=device_type,
+                device_type_str=device_type_str,
+                product_type=device.get("product_type"),
+                entry_id=entry.entry_id,
+            )
+        )
+
+        # The remaining sensors describe a cover (position, angle, valances).
+        if device_type not in COVER_DEVICE_TYPES:
+            continue
 
         # Position and angle sensors
         for key, name, unit, icon in _SENSOR_DEFS:
@@ -401,6 +420,67 @@ class WaremaMotorInfoSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
         if params is None:
             return None
         return getattr(params, self._attr_key, None)
+
+
+class WaremaProductTypeSensor(SensorEntity):
+    """Diagnostic sensor showing the product type reported by the device.
+
+    The product type (Block 37) decides how the device is driven: whether it
+    has a position axis, whether its louvres tilt, and which slat angle range
+    applies. Exposing it makes that visible without reading the debug log.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "product_type"
+    _attr_icon = "mdi:information-outline"
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        snr: int,
+        snr_hex: str,
+        device_type: str,
+        device_type_str: str,
+        product_type: int | None,
+        entry_id: str,
+    ) -> None:
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._device_type = device_type
+        self._device_type_str = device_type_str
+        self._product_type = product_type
+        self._entry_id = entry_id
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_product_type"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            name=self._device_type_str,
+            manufacturer="Warema",
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return e.g. '28 SlatRoofL70', or 'unknown' when not read yet."""
+        from .pywarema.protocol import product_type_name
+
+        if self._product_type is None:
+            return "unknown"
+        return f"{self._product_type} {product_type_name(self._product_type)}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the raw identifying fields for support requests."""
+        return {
+            "device_type": self._device_type,
+            "device_type_str": self._device_type_str,
+            "product_type": self._product_type,
+            "snr": self._snr,
+            "snr_hex": self._snr_hex,
+        }
 
 
 class WaremaValanceSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
