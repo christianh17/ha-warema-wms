@@ -364,6 +364,18 @@ def encode_cmd(cmd: str, snr, params: dict) -> dict:
             + "FFFF}"
         )
 
+    elif cmd == "lightSetLevel":
+        # Brightness for a dimming actuator. Same command and same encoding as
+        # a motor position (percent * 2) in the first setting byte; the
+        # remaining settings are 0xFF ("leave unchanged"), which on a dimmer
+        # keeps its configured dimming speed and level limits untouched.
+        level = params.get("level", 0)
+        result["expect"]["msg_type"] = "blindMoveToPosResponse"
+        result["expect"]["snr"] = snr_hex
+        result["cmd"] = (
+            "{R06" + snr_hex + "7070" + "03" + pos_percent_to_hex(level) + "FFFFFF}"
+        )
+
     elif cmd == "blindStopMove":
         result["expect"]["msg_type"] = "blindMoveToPosResponse"
         result["expect"]["snr"] = snr_hex

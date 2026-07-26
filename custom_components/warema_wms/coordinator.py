@@ -406,6 +406,16 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         if self.stick:
             self.stick.blind_set_position(snr, 100, 100)
 
+    def set_light_level(self, snr: int, level: int) -> None:
+        """Set the brightness of a dimming actuator.
+
+        Args:
+            snr: Integer serial number of the device.
+            level: 0-100 (0 = off, 100 = full brightness).
+        """
+        if self.stick:
+            self.stick.light_set_level(snr, level)
+
     def get_position(self, snr: int) -> None:
         """Request current position of a blind.
 

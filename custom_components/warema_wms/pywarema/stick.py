@@ -82,6 +82,7 @@ DELAY_MSG_PROC = 0.005  # 5 ms
 CMD_SETTINGS = {
     "blindGetPos": {"timeout": 0.500, "delay_after": 0.100, "retry": 5},
     "blindMoveToPos": {"timeout": 0.500, "delay_after": 0.300, "retry": 3},
+    "lightSetLevel": {"timeout": 0.500, "delay_after": 0.300, "retry": 3},
     "blindStopMove": {"timeout": 0.200, "delay_after": 0.005, "retry": 3},
     "waveRequest": {"timeout": 0.500, "delay_after": 0.300, "retry": -1},
     "scanRequest": {"timeout": 0.750, "delay_after": 0.000, "retry": -1},
@@ -481,6 +482,56 @@ class WmsStick:
                 on_complete(error, msg_sent, msg_rcv)
 
         msg = WmsMessage("blindMoveToPos", blind.snr, {"pos": position, "ang": angle})
+        msg.on_end = _on_complete
+        self._enqueue(msg, priority=True)
+        threading.Timer(DELAY_MSG_PROC, self._process_queue).start()
+
+    def light_set_level(
+        self,
+        blind_id,
+        level: int,
+        on_complete: Optional[Callable] = None,
+    ) -> None:
+        """Set the brightness of a dimming actuator.
+
+        A dimming actuator carries its brightness in the same state byte and
+        with the same encoding a motor uses for its position (percent * 2), and
+        it is driven by the same command. Setting brightness is therefore the
+        position command applied to a dimmer, which is why the two share this
+        code path.
+
+        Args:
+            blind_id: snr, snr_hex, or name
+            level: 0-100 (0 = off, 100 = full brightness)
+            on_complete: Optional callback(error, msg_sent, msg_rcv).
+        """
+        level = max(0, min(100, int(level)))
+        device = self._get_blind(blind_id)
+        if not device:
+            _LOGGER.warning(
+                "WmsStick: light_set_level: Cannot find device '%s'", blind_id
+            )
+            return
+
+        device.pos_requested = BlindPosition(pos=level, ang=0, moving=True)
+
+        def _on_complete(error, msg_sent, msg_rcv):
+            if error != "timeout":
+                # Adopt the commanded level right away so the light reports the
+                # requested brightness before the next poll comes in.
+                new_pos = BlindPosition(
+                    pos=level,
+                    ang=device.pos_current.ang,
+                    moving=False,
+                    valance_1=device.pos_current.valance_1,
+                    valance_2=device.pos_current.valance_2,
+                )
+                self._update_blind_pos(device, new_pos)
+            if on_complete:
+                on_complete(error, msg_sent, msg_rcv)
+
+        _LOGGER.debug("WmsStick: light_set_level %s -> %d%%", device.snr_hex, level)
+        msg = WmsMessage("lightSetLevel", device.snr, {"level": level})
         msg.on_end = _on_complete
         self._enqueue(msg, priority=True)
         threading.Timer(DELAY_MSG_PROC, self._process_queue).start()
