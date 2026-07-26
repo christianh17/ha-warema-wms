@@ -31,7 +31,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    BLIND_DEVICE_TYPES,
+    COVER_DEVICE_TYPES,
     CONF_DEVICES,
     DOMAIN,
     SIGNAL_NEW_WEATHER_STATION,
@@ -89,7 +89,7 @@ async def async_setup_entry(
 
     for device in entry.data.get(CONF_DEVICES, []):
         device_type = device.get("device_type", "20")
-        if device_type not in BLIND_DEVICE_TYPES:
+        if device_type not in COVER_DEVICE_TYPES:
             continue
 
         snr = device.get("snr")

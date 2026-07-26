@@ -38,7 +38,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    BLIND_DEVICE_TYPES,
+    COVER_DEVICE_TYPES,
     CONF_DEVICES,
     DOMAIN,
     OPT_INVERT_POSITION,
@@ -80,7 +80,7 @@ async def async_setup_entry(
             snr_int = int(snr) if not isinstance(snr, int) else snr
             name = f"{device_type_str} {snr_int}"
 
-            if device_type in BLIND_DEVICE_TYPES:
+            if device_type in COVER_DEVICE_TYPES:
                 entities.append(
                     WaremaCover(
                         coordinator=coordinator,
@@ -102,7 +102,7 @@ async def async_setup_entry(
 
         for device in discovered:
             device_type = device.get("device_type", "")
-            if device_type in BLIND_DEVICE_TYPES:
+            if device_type in COVER_DEVICE_TYPES:
                 snr = device.get("snr")
                 snr_hex = device.get("snr_hex", "")
                 device_type_str = device.get("device_type_str", "Blind")

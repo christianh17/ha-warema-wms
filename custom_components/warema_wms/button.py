@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import BLIND_DEVICE_TYPES, CONF_DEVICES, DOMAIN
+from .const import COVER_DEVICE_TYPES, CONF_DEVICES, DOMAIN
 from .coordinator import WaremaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ async def async_setup_entry(
 
     for device in entry.data.get(CONF_DEVICES, []):
         device_type = device.get("device_type", "20")
-        if device_type not in BLIND_DEVICE_TYPES:
+        if device_type not in COVER_DEVICE_TYPES:
             continue
 
         snr = device.get("snr")

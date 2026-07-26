@@ -47,7 +47,8 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
-    BLIND_DEVICE_TYPES,
+    COVER_DEVICE_TYPES,
+    SUPPORTED_DEVICE_TYPES,
     CONF_CHANNEL,
     CONF_DEVICES,
     CONF_DISCOVERY_MODE,
@@ -424,7 +425,7 @@ async def _test_connection(
         from .pywarema.protocol import product_type_name
 
         for dev in devices:
-            if dev.get("device_type", "") not in BLIND_DEVICE_TYPES:
+            if dev.get("device_type", "") not in SUPPORTED_DEVICE_TYPES:
                 continue
             snr = dev.get("snr")
             if snr is None:
@@ -1032,7 +1033,7 @@ class WaremaWmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         blind_devices = [
             d
             for d in self._discovered_devices
-            if d.get("device_type", "") in BLIND_DEVICE_TYPES
+            if d.get("device_type", "") in SUPPORTED_DEVICE_TYPES
         ]
 
         if user_input is not None:
@@ -1193,7 +1194,7 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         self._discovered_devices = [
             d
             for d in scanned
-            if d.get("device_type", "") in BLIND_DEVICE_TYPES
+            if d.get("device_type", "") in SUPPORTED_DEVICE_TYPES
             and d.get("snr") is not None
             and int(d["snr"]) not in existing_snrs
         ]
@@ -1256,7 +1257,7 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         devices = [
             d
             for d in self.config_entry.data.get(CONF_DEVICES, [])
-            if d.get("device_type", "") in BLIND_DEVICE_TYPES
+            if d.get("device_type", "") in COVER_DEVICE_TYPES
             and d.get("snr") is not None
         ]
         if not devices:

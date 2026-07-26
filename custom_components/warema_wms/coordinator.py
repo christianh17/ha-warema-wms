@@ -23,7 +23,7 @@ from .const import (
     CONF_NETWORK_KEY,
     CONF_PAN_ID,
     CONF_SERIAL_PORT,
-    BLIND_DEVICE_TYPES,
+    SUPPORTED_DEVICE_TYPES,
     DOMAIN,
     POS_UPDATE_INTERVAL,
     SIGNAL_NEW_WEATHER_STATION,
@@ -144,7 +144,7 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         for device in devices:
             snr = device.get("snr")
             device_type = device.get("device_type", "20")
-            if device_type in BLIND_DEVICE_TYPES and snr is not None:
+            if device_type in SUPPORTED_DEVICE_TYPES and snr is not None:
                 snr_int = int(snr) if not isinstance(snr, int) else snr
                 name = device.get("device_type_str", "Blind") + f" {snr_int}"
                 _LOGGER.info(
@@ -184,7 +184,7 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         for device in devices:
             snr = device.get("snr")
             device_type = device.get("device_type", "20")
-            if device_type in BLIND_DEVICE_TYPES and snr is not None:
+            if device_type in SUPPORTED_DEVICE_TYPES and snr is not None:
                 snr_int = int(snr) if not isinstance(snr, int) else snr
                 _LOGGER.debug(
                     "WaremaCoordinator: Requesting initial position for SNR=%d",

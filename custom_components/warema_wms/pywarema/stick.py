@@ -49,7 +49,7 @@ from .protocol import (
     ADDR_RUN_TIME_UP,
     ADDR_TILTING_STEPS,
     ADDR_TILTING_TIME,
-    BLIND_DEVICE_TYPES,
+    SUPPORTED_DEVICE_TYPES,
     MOTOR_PARAM_BLOCK,
     PRODUCT_ADDR,
     PRODUCT_BLOCK,
@@ -1418,7 +1418,7 @@ class WmsStick:
         if auto_assign_blinds:
             self._blinds = {}
             for dev in devices:
-                if dev.get("device_type", "") in BLIND_DEVICE_TYPES:
+                if dev.get("device_type", "") in SUPPORTED_DEVICE_TYPES:
                     self.blind_add(
                         dev["snr"],
                         f"{dev['device_type_str']} {dev['snr']} ({dev['snr_hex']})",

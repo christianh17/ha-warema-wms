@@ -24,26 +24,26 @@ import math
 from dataclasses import dataclass
 from typing import Optional, Union
 
+# Device type table and platform routing live in device_types.py. Re-exported
+# here so existing importers of protocol.DEVICE_TYPE_STRINGS keep working.
+from .device_types import (
+    BLIND_DEVICE_TYPES,
+    COVER_DEVICE_TYPES,
+    DEVICE_TYPE_STRINGS,
+    LIGHT_DIMMER_DEVICE_TYPES,
+    SUPPORTED_DEVICE_TYPES,
+    TILT_DEVICE_TYPES,
+    device_type_name,
+    is_cover_device,
+    is_light_device,
+    is_supported_device,
+    platform_for_device_type,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 # Angle scaling constant (from JS: const wmsAngle = 75)
 WMS_ANGLE = 75
-
-# Device type strings
-DEVICE_TYPE_STRINGS = {
-    "02": "Stick/software",
-    "06": "Weather station",
-    "07": "Remote control (+)",
-    "20": "Actuator UP",
-    "21": "Plug receiver",
-    "25": "Radio motor",
-    "2A": "Radio motor (Lamellendach L60/L70)",
-    "2E": "Actuator 230V UP",
-    "63": "Web control",
-}
-
-# Device types that are controllable blinds/covers
-BLIND_DEVICE_TYPES = {"20", "21", "25", "2A", "2E"}
 
 
 # ---------------------------------------------------------------------------
