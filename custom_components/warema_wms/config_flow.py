@@ -1311,9 +1311,20 @@ class WaremaWmsOptionsFlow(config_entries.OptionsFlow):
         Only Actuator UP (20) / Plug Receiver (21) / Actuator 230V UP (2E) store
         the manualOperation / scene / common params we expose. Radio motors (25)
         use a different parameter layout.
+
+        Products that lay out block 38 differently (slat roofs, dimmers and the
+        other switching products) are excluded as well: their parameters live at
+        different addresses, so editing them here would write to the wrong ones.
         """
+        from .pywarema.protocol import has_standard_param_layout
+
         devices = list(self.config_entry.data.get(CONF_DEVICES, []))
-        return [d for d in devices if d.get("device_type", "") in {"20", "21", "2E"}]
+        return [
+            d
+            for d in devices
+            if d.get("device_type", "") in {"20", "21", "2E"}
+            and has_standard_param_layout(d.get("product_type"))
+        ]
 
     def _device_label(self, d: dict) -> str:
         """Friendly label for a device, preferring the HA device-registry name."""

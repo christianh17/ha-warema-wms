@@ -57,6 +57,7 @@ from .protocol import (
     SW_INFO_ADDR,
     SW_INFO_BLOCK,
     SW_INFO_SIZE,
+    has_standard_param_layout,
     MotorParameters,
     decode_frame,
     encode_cmd,
@@ -681,6 +682,15 @@ class WmsStick:
             )
             return None
 
+        if not has_standard_param_layout(blind.product_type):
+            _LOGGER.debug(
+                "WmsStick: read_motor_parameters: skipping %s, product type %s "
+                "lays out block 38 differently",
+                blind.snr_hex,
+                blind.product_type,
+            )
+            return None
+
         params = MotorParameters()
         done = threading.Event()
         remaining = [6]
@@ -1021,6 +1031,18 @@ class WmsStick:
         if not blind:
             _LOGGER.warning(
                 "WmsStick: write_motor_parameters: Cannot find blind '%s'", blind_id
+            )
+            return False
+
+        if not has_standard_param_layout(blind.product_type):
+            # Refuse rather than write: on these products the addresses below
+            # belong to unrelated parameters, so a write would silently change
+            # the wrong settings.
+            _LOGGER.warning(
+                "WmsStick: write_motor_parameters: refusing to write to %s, "
+                "product type %s lays out block 38 differently",
+                blind.snr_hex,
+                blind.product_type,
             )
             return False
 

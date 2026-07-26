@@ -197,6 +197,37 @@ def angle_hex_to_percent(ang_hex: str) -> int:
 
 MOTOR_PARAM_BLOCK = 38
 
+# Products whose block 38 uses a DIFFERENT address layout than the one mapped
+# out below. The addresses here describe the actuators driving blinds, shutters
+# and awnings; on a slat roof the same region holds the louvre angle limits and
+# the sensor assignments instead, and on a dimmer it holds the dimming settings.
+#
+# Reading - and above all writing - those addresses on such a device would hit
+# unrelated parameters, so the motor parameter helpers refuse to touch them.
+PRODUCT_TYPES_WITH_OTHER_PARAM_LAYOUT: set[int] = {
+    16,  # LightSwitching
+    17,  # LoadSwitching
+    18,  # LightDimming
+    19,  # LoadDimming
+    20,  # PlugSocketSwitching
+    26,  # LedDimmable
+    27,  # SlatRoofL60 (Lamellendach)
+    28,  # SlatRoofL70 (Lamellendach)
+    29,  # SlatRoofL70Tilting (Lamellendach)
+    30,  # FloatingOutput
+}
+
+
+def has_standard_param_layout(product_type: int | None) -> bool:
+    """Return True when block 38 uses the address layout mapped out here.
+
+    Unknown product types (None) are treated as standard: that is the state
+    before the product info has been read, and it preserves the behaviour this
+    integration had before the check existed.
+    """
+    return product_type not in PRODUCT_TYPES_WITH_OTHER_PARAM_LAYOUT
+
+
 # Block 38 addresses for the persistent motor parameters.
 ADDR_COMMON_IS_ABSENT = 1
 ADDR_COMFORT_AUTO_ENABLED = 2  # common.isComfortAutoEnabled
