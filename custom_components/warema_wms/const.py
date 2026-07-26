@@ -66,7 +66,6 @@ from .pywarema.device_types import (  # noqa: F401  (re-export)
     platform_for_device_type,
 )
 
-
 # Map productType (from motor Block 37 addr 12) to HA CoverDeviceClass strings.
 # Kept as strings here to avoid importing homeassistant from const.py - cover.py
 # wraps them in CoverDeviceClass(...). Anything not listed falls through to

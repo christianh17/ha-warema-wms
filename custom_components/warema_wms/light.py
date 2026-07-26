@@ -198,9 +198,7 @@ class WaremaLight(CoordinatorEntity[WaremaCoordinator], LightEntity):
         if current:
             self._last_level = current
 
-        _LOGGER.debug(
-            "WaremaLight: turn_off SNR=%d (%s)", self._snr, self._snr_hex
-        )
+        _LOGGER.debug("WaremaLight: turn_off SNR=%d (%s)", self._snr, self._snr_hex)
         await self.hass.async_add_executor_job(
             self.coordinator.set_light_level, self._snr, 0
         )
