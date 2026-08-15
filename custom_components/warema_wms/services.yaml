@@ -1,0 +1,39 @@
+test_move_valance:
+  name: "Test: Volant-Position setzen (experimentell)"
+  description: >
+    EXPERIMENTELL und ungetestet. Sendet einen Zielwert für Volant 1 und/oder
+    Volant 2 an den angegebenen Motor, ohne die aktuelle Position/den
+    Lamellenwinkel zu verändern. Beruht auf einer Ableitung aus dem
+    Antwort-Frame-Layout (siehe Kommentar zu "blindMoveToPos" in
+    pywarema/protocol.py) - nicht offiziell von WAREMA dokumentiert.
+    Vorsichtig testen und die tatsächliche Bewegung der Markise/des Volants
+    beobachten.
+  fields:
+    entity_id:
+      name: "Cover-Entity"
+      description: "Die Markisen-Cover-Entity, deren Volant angesteuert werden soll."
+      required: true
+      selector:
+        entity:
+          domain: cover
+          integration: warema_wms
+    valance_1:
+      name: "Ziel Volant 1 (%)"
+      description: "0 = eingefahren/oben, 100 = ausgefahren/unten. Leer lassen, um Volant 1 nicht zu ändern."
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    valance_2:
+      name: "Ziel Volant 2 (%)"
+      description: "Nur bei Produkten mit zwei Volants relevant. Leer lassen, um Volant 2 nicht zu ändern."
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"

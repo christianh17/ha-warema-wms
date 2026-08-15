@@ -445,6 +445,8 @@ class WmsStick:
         position: int,
         angle: int,
         on_complete: Optional[Callable] = None,
+        valance_1: Optional[int] = None,
+        valance_2: Optional[int] = None,
     ) -> None:
         """Move a blind to the specified position and angle.
 
@@ -454,6 +456,12 @@ class WmsStick:
             angle: -100 to +100 (slat angle)
             on_complete: Optional callback(error, msg_sent, msg_rcv) called when
                          the motor acknowledges the command.
+            valance_1: EXPERIMENTAL, untested. 0-100 target for the first
+                       valance/Volant-Rollo, or None to leave it unchanged.
+                       See the comment on the "blindMoveToPos" command in
+                       protocol.py before using this on real hardware.
+            valance_2: EXPERIMENTAL, untested. Same as valance_1 for the
+                       second valance (products with two).
         """
         blind = self._get_blind(blind_id)
         if not blind:
@@ -482,7 +490,16 @@ class WmsStick:
             if on_complete:
                 on_complete(error, msg_sent, msg_rcv)
 
-        msg = WmsMessage("blindMoveToPos", blind.snr, {"pos": position, "ang": angle})
+        msg = WmsMessage(
+            "blindMoveToPos",
+            blind.snr,
+            {
+                "pos": position,
+                "ang": angle,
+                "valance_1": valance_1,
+                "valance_2": valance_2,
+            },
+        )
         msg.on_end = _on_complete
         self._enqueue(msg, priority=True)
         threading.Timer(DELAY_MSG_PROC, self._process_queue).start()

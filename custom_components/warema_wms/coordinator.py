@@ -379,6 +379,32 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         if self.stick:
             self.stick.blind_set_position(snr, position, angle)
 
+    def set_valance_position(
+        self,
+        snr: int,
+        valance_1: int | None = None,
+        valance_2: int | None = None,
+    ) -> None:
+        """EXPERIMENTAL/untested: move a blind's valance(s) to a target %.
+
+        Keeps the blind's current position and angle unchanged (reads them
+        from the coordinator's last known state) and sends only the valance
+        target byte(s). See the comment on the "blindMoveToPos" command in
+        pywarema/protocol.py for what this relies on and why it is unverified.
+        """
+        if not self.stick:
+            return
+        blind = self.stick._get_blind(snr)
+        current_pos = blind.pos_current.pos if blind else 0
+        current_ang = blind.pos_current.ang if blind else 0
+        self.stick.blind_set_position(
+            snr,
+            current_pos,
+            current_ang,
+            valance_1=valance_1,
+            valance_2=valance_2,
+        )
+
     def stop(self, snr: int) -> None:
         """Stop a blind.
 

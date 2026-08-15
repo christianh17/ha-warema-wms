@@ -383,6 +383,21 @@ def encode_cmd(cmd: str, snr, params: dict) -> dict:
     elif cmd == "blindMoveToPos":
         pos = params.get("pos", 0)
         ang = params.get("ang", 0)
+        # EXPERIMENTAL: valance_1 / valance_2 target bytes.
+        #
+        # Not documented by WAREMA. Inferred from the fact that the
+        # blindMoveToPosResponse (7071) echoes back prev_position, prev_angle,
+        # prev_valance_1, prev_valance_2 as four consecutive bytes - the exact
+        # same byte layout as this command's <pos><ang><FF><FF> tail. The
+        # command has always sent 0xFF/0xFF here ("leave unchanged" sentinel,
+        # per the position-response decoder). Passing an explicit 0-100 value
+        # is untested against real hardware - verify carefully (start with a
+        # harmless test target, e.g. the valance's current position, before
+        # trying an actual move).
+        valance_1 = params.get("valance_1")
+        valance_2 = params.get("valance_2")
+        valance_1_hex = "FF" if valance_1 is None else pos_percent_to_hex(valance_1)
+        valance_2_hex = "FF" if valance_2 is None else pos_percent_to_hex(valance_2)
         result["expect"]["msg_type"] = "blindMoveToPosResponse"
         result["expect"]["snr"] = snr_hex
         result["cmd"] = (
@@ -392,7 +407,9 @@ def encode_cmd(cmd: str, snr, params: dict) -> dict:
             + "03"
             + pos_percent_to_hex(pos)
             + angle_percent_to_hex(ang)
-            + "FFFF}"
+            + valance_1_hex
+            + valance_2_hex
+            + "}"
         )
 
     elif cmd == "lightSetLevel":
