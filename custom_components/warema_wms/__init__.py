@@ -22,6 +22,7 @@ from homeassistant.helpers import config_validation as cv, entity_registry as er
 
 from .const import DOMAIN
 from .coordinator import WaremaCoordinator
+from .pywarema.protocol import snr_hex_to_num
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,9 +79,11 @@ async def _async_handle_test_move_valance(hass: HomeAssistant, call: ServiceCall
         )
 
     # unique_id is "{DOMAIN}_{snr_hex}" (see cover.py) - snr_hex is the last
-    # token after the domain prefix.
+    # token after the domain prefix. The WMS wire encoding byte-swaps the SNR
+    # (see snr_num_to_hex/snr_hex_to_num in pywarema/protocol.py), so we must
+    # use snr_hex_to_num() here rather than a plain int(x, 16).
     snr_hex = entity_entry.unique_id.rsplit("_", 1)[-1]
-    snr = int(snr_hex, 16)
+    snr = snr_hex_to_num(snr_hex)
 
     _LOGGER.warning(
         "test_move_valance: EXPERIMENTAL command, snr=%s valance_1=%s valance_2=%s",
