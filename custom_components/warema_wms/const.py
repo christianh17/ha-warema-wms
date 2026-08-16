@@ -83,7 +83,7 @@ PRODUCT_TYPE_TO_DEVICE_CLASS: dict[int, str] = {
     7: "awning",  # ConservatoryAwning (Wintergarten)
     8: "awning",  # FacadeAwning (Fassadenmarkise)
     9: "awning",  # DroparmAwning (Gelenkarm)
-    10: "awning",  # VerticalAwning (Senkrechtmarkise)
+    10: "shade",  # VerticalAwning (Senkrechtmarkise/Zipscreen) - moves vertically like a shade, not sideways like an awning
     11: "awning",  # Markisolette
     12: "shade",  # PleatedBlindInside (Plissee)
     13: "shade",  # RollerBlindInside (Innenrollo)
@@ -97,4 +97,16 @@ PRODUCT_TYPE_TO_DEVICE_CLASS: dict[int, str] = {
     27: "awning",  # SlatRoofL60 (Lamellendach)
     28: "awning",  # SlatRoofL70 (Lamellendach)
     29: "awning",  # SlatRoofL70Tilting (Lamellendach)
+}
+
+# Number of separately-controllable valances (Volants) a productType has, so
+# cover.py can create one WaremaValanceCover per valance without hardcoding
+# per-device logic. Products not listed here have no controllable valance -
+# this deliberately excludes productType 21 ("Valance"), which IS a
+# standalone valance-only device rather than an awning that also has one.
+VALANCE_COUNT_BY_PRODUCT_TYPE: dict[int, int] = {
+    4: 1,  # AwningOneValance
+    6: 1,  # AwningOneValanceOneOrTwoWindsensors
+    22: 2,  # AwningTwoValances
+    23: 2,  # AwningTwoValancesOneOrTwoWindsensors
 }
