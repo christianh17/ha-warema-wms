@@ -93,7 +93,7 @@ PRODUCT_TYPE_TO_DEVICE_CLASS: dict[int, str] = {
     7: "awning",  # ConservatoryAwning (Wintergarten)
     8: "awning",  # FacadeAwning (Fassadenmarkise)
     9: "awning",  # DroparmAwning (Gelenkarm)
-    10: "shade",  # VerticalAwning (Senkrechtmarkise/Zipscreen) - moves vertically like a shade, not sideways like an awning
+    10: "blind",  # VerticalAwning (Senkrechtmarkise/Zipscreen) - moves vertically. "blind" (not "shade") fills the HA slider bottom-up in proportion to position, matching how a Zipscreen's deployed fabric is intuitively read (confirmed against real hardware, 2026-08) - "shade" instead fills top-down representing "amount currently covering", which reads backwards for this product.
     11: "awning",  # Markisolette
     12: "shade",  # PleatedBlindInside (Plissee)
     13: "shade",  # RollerBlindInside (Innenrollo)

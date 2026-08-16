@@ -112,7 +112,6 @@ async def async_setup_entry(
                             snr_hex=snr_hex,
                             entry_id=entry.entry_id,
                             valance_num=valance_num,
-                            invert=bool(invert_map.get(str(snr_int), False)),
                         )
                     )
     else:
@@ -154,7 +153,6 @@ async def async_setup_entry(
                             snr_hex=snr_hex,
                             entry_id=entry.entry_id,
                             valance_num=valance_num,
-                            invert=bool(invert_map.get(str(snr), False)),
                         )
                     )
 
