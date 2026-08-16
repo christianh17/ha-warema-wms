@@ -380,6 +380,69 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         if self.stick:
             self.stick.blind_set_position(snr, position, angle)
 
+    def set_position_and_valance(
+        self,
+        snr: int,
+        position: int,
+        angle: int = 0,
+        valance_1: int | None = None,
+        valance_2: int | None = None,
+        timeout: float = 3.0,
+    ) -> None:
+        """Move a blind's main position AND its valance(s) in ONE command.
+
+        For products where the main cover and its valance are actually the
+        same physical motor (e.g. AwningOneValance), sending two SEPARATE
+        blindMoveToPos commands close together (one for position, one for
+        valance) can race: the motor appears to treat each new command as
+        superseding the previous one's still-in-progress target, so a
+        position-only command arriving shortly after a valance command can
+        abort the valance move before it completes (observed against real
+        hardware, 2026-08 - see the "Terrasse-Presets" debugging session).
+
+        Use this instead of two separate coordinator calls whenever both a
+        position and a valance target need to be set on the same SNR at
+        roughly the same time. Blocks (call via an executor job) until the
+        motor acknowledges or `timeout` seconds pass, and raises on failure
+        - same contract as set_valance_position.
+
+        Raises:
+            RuntimeError: if the stick isn't connected, the SNR is unknown,
+                or the motor didn't acknowledge within `timeout` seconds.
+        """
+        if not self.stick:
+            raise RuntimeError("Warema WMS stick ist nicht verbunden.")
+
+        blind = self.stick._get_blind(snr)
+        if not blind:
+            raise RuntimeError(f"Unbekannte Warema-SNR: {snr}.")
+
+        done = threading.Event()
+        outcome: dict[str, str] = {}
+
+        def _on_complete(error, msg_sent, msg_rcv):
+            outcome["error"] = error or ""
+            done.set()
+
+        self.stick.blind_set_position(
+            snr,
+            position,
+            angle,
+            on_complete=_on_complete,
+            valance_1=valance_1,
+            valance_2=valance_2,
+        )
+
+        if not done.wait(timeout):
+            raise RuntimeError(
+                f"Motor {snr} hat innerhalb von {timeout}s nicht bestätigt "
+                "(Befehl wurde vermutlich nicht angenommen)."
+            )
+        if outcome.get("error"):
+            raise RuntimeError(
+                f"Motor {snr} meldete einen Fehler: {outcome['error']}"
+            )
+
     def set_valance_position(
         self,
         snr: int,

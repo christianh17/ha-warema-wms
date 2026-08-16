@@ -1,22 +1,34 @@
-test_move_valance:
-  name: "Test: Volant-Position setzen (experimentell)"
+set_position_and_valance:
+  name: "Position + Volant gemeinsam setzen"
   description: >
-    EXPERIMENTELL und ungetestet. Sendet einen Zielwert für Volant 1 und/oder
-    Volant 2 an den angegebenen Motor, ohne die aktuelle Position/den
-    Lamellenwinkel zu verändern. Beruht auf einer Ableitung aus dem
-    Antwort-Frame-Layout (siehe Kommentar zu "blindMoveToPos" in
-    pywarema/protocol.py) - nicht offiziell von WAREMA dokumentiert.
-    Vorsichtig testen und die tatsächliche Bewegung der Markise/des Volants
-    beobachten.
+    Setzt die Hauptposition UND einen Volant-Zielwert in EINEM Funkbefehl.
+    Nutzen statt zweier separater cover.set_cover_position-Aufrufe (einmal
+    auf das Haupt-Cover, einmal auf das Volant-Cover), wenn beide denselben
+    physischen Motor ansteuern (z.B. Markise mit Volant) - zwei getrennte
+    Befehle kurz hintereinander können sich sonst gegenseitig unterbrechen
+    und den Volant-Fahrbefehl abbrechen (beobachtet an echter Hardware,
+    2026-08). position/valance_1/valance_2 nutzen dieselbe rohe 0-100%-
+    Konvention wie der "WMS Position"-Sensor (0=auf, 100=zu) - NICHT die
+    gespiegelte Dashboard-Konvention.
   fields:
     entity_id:
       name: "Cover-Entity"
-      description: "Die Markisen-Cover-Entity, deren Volant angesteuert werden soll."
+      description: "Die Haupt-Cover-Entity der Markise (nicht die Volant-Entity)."
       required: true
       selector:
         entity:
           domain: cover
           integration: warema_wms
+    position:
+      name: "Zielposition (%)"
+      description: "0 = offen/eingefahren, 100 = geschlossen/ausgefahren."
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
     valance_1:
       name: "Ziel Volant 1 (%)"
       description: "0 = eingefahren/oben, 100 = ausgefahren/unten. Leer lassen, um Volant 1 nicht zu ändern."

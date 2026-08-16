@@ -38,10 +38,13 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
 ]
 
-SERVICE_TEST_MOVE_VALANCE = "test_move_valance"
-_TEST_MOVE_VALANCE_SCHEMA = vol.Schema(
+SERVICE_SET_POSITION_AND_VALANCE = "set_position_and_valance"
+_SET_POSITION_AND_VALANCE_SCHEMA = vol.Schema(
     {
         vol.Required("entity_id"): cv.entity_id,
+        vol.Required("position"): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=100)
+        ),
         vol.Optional("valance_1"): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=100)
         ),
@@ -52,27 +55,14 @@ _TEST_MOVE_VALANCE_SCHEMA = vol.Schema(
 )
 
 
-async def _async_handle_test_move_valance(hass: HomeAssistant, call: ServiceCall) -> None:
-    """EXPERIMENTAL/untested: handler for the test_move_valance service.
-
-    See the comment on the "blindMoveToPos" command in
-    pywarema/protocol.py for what this relies on.
-    """
-    entity_id = call.data["entity_id"]
-    valance_1 = call.data.get("valance_1")
-    valance_2 = call.data.get("valance_2")
-
-    if valance_1 is None and valance_2 is None:
-        raise HomeAssistantError(
-            "test_move_valance: valance_1 oder valance_2 muss gesetzt sein."
-        )
-
+def _resolve_snr_and_coordinator(
+    hass: HomeAssistant, entity_id: str
+) -> tuple[int, WaremaCoordinator]:
+    """Shared helper: entity_id -> (snr, coordinator), or raise HomeAssistantError."""
     registry = er.async_get(hass)
     entity_entry = registry.async_get(entity_id)
     if entity_entry is None or entity_entry.platform != DOMAIN:
-        raise HomeAssistantError(
-            f"'{entity_id}' ist keine Warema-WMS-Cover-Entity."
-        )
+        raise HomeAssistantError(f"'{entity_id}' ist keine Warema-WMS-Cover-Entity.")
 
     coordinator: WaremaCoordinator | None = hass.data.get(DOMAIN, {}).get(
         entity_entry.config_entry_id
@@ -82,26 +72,55 @@ async def _async_handle_test_move_valance(hass: HomeAssistant, call: ServiceCall
             f"Keine aktive Warema-WMS-Verbindung für '{entity_id}' gefunden."
         )
 
-    # unique_id is "{DOMAIN}_{snr_hex}" (see cover.py) - snr_hex is the last
-    # token after the domain prefix. The WMS wire encoding byte-swaps the SNR
-    # (see snr_num_to_hex/snr_hex_to_num in pywarema/protocol.py), so we must
-    # use snr_hex_to_num() here rather than a plain int(x, 16).
     snr_hex = entity_entry.unique_id.rsplit("_", 1)[-1]
-    snr = snr_hex_to_num(snr_hex)
+    return snr_hex_to_num(snr_hex), coordinator
 
-    _LOGGER.warning(
-        "test_move_valance: EXPERIMENTAL command, snr=%s valance_1=%s valance_2=%s",
-        snr_hex,
-        valance_1,
-        valance_2,
-    )
+
+async def _async_handle_set_position_and_valance(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handler for set_position_and_valance.
+
+    Sends the main position AND a valance target in ONE blindMoveToPos
+    command. Use this instead of two separate cover.set_cover_position
+    calls (one on the main cover, one on the valance cover) whenever both
+    target the SAME physical motor (e.g. AwningOneValance) at roughly the
+    same time - two separate commands close together can race and abort
+    the valance move (see coordinator.set_position_and_valance docstring).
+
+    `position` (and the current slat angle, read live from the coordinator)
+    use the same raw 0-100 WMS convention as the "position" attribute shown
+    on the entity (0=open/aus, 100=closed/zu) - NOT the inverted spiegel_*
+    dashboard convention.
+    """
+    entity_id = call.data["entity_id"]
+    position = call.data["position"]
+    valance_1 = call.data.get("valance_1")
+    valance_2 = call.data.get("valance_2")
+
+    if valance_1 is None and valance_2 is None:
+        raise HomeAssistantError(
+            "set_position_and_valance: valance_1 oder valance_2 muss gesetzt sein "
+            "(sonst reicht der normale cover.set_cover_position Service)."
+        )
+
+    snr, coordinator = _resolve_snr_and_coordinator(hass, entity_id)
+
+    state = coordinator.data.get(snr) if coordinator.data else None
+    current_angle = state.angle if state else 0
+
     try:
         await hass.async_add_executor_job(
-            coordinator.set_valance_position, snr, valance_1, valance_2
+            coordinator.set_position_and_valance,
+            snr,
+            position,
+            current_angle,
+            valance_1,
+            valance_2,
         )
     except Exception as exc:
         raise HomeAssistantError(
-            f"test_move_valance für '{entity_id}' fehlgeschlagen: {exc}"
+            f"set_position_and_valance für '{entity_id}' fehlgeschlagen: {exc}"
         ) from exc
 
 
@@ -135,16 +154,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
-    if not hass.services.has_service(DOMAIN, SERVICE_TEST_MOVE_VALANCE):
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_POSITION_AND_VALANCE):
 
-        async def _service_handler(call: ServiceCall) -> None:
-            await _async_handle_test_move_valance(hass, call)
+        async def _combined_service_handler(call: ServiceCall) -> None:
+            await _async_handle_set_position_and_valance(hass, call)
 
         hass.services.async_register(
             DOMAIN,
-            SERVICE_TEST_MOVE_VALANCE,
-            _service_handler,
-            schema=_TEST_MOVE_VALANCE_SCHEMA,
+            SERVICE_SET_POSITION_AND_VALANCE,
+            _combined_service_handler,
+            schema=_SET_POSITION_AND_VALANCE_SCHEMA,
         )
 
     return True
