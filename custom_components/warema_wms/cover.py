@@ -41,9 +41,11 @@ from .const import (
     COVER_DEVICE_TYPES,
     CONF_DEVICES,
     DOMAIN,
+    OPT_FORCE_VERTICAL_ARROWS,
     OPT_INVERT_POSITION,
     PRODUCT_TYPE_TO_DEVICE_CLASS,
     TILT_DEVICE_TYPES,
+    VALANCE_COUNT_BY_PRODUCT_TYPE,
 )
 from .coordinator import WaremaCoordinator
 from .pywarema.protocol import product_type_name
@@ -63,6 +65,8 @@ async def async_setup_entry(
 
     # Per-device position inversion, keyed by string SNR (see OPT_INVERT_POSITION).
     invert_map = entry.options.get(OPT_INVERT_POSITION, {})
+    # Per-device forced vertical-arrows override (see OPT_FORCE_VERTICAL_ARROWS).
+    force_vertical_map = entry.options.get(OPT_FORCE_VERTICAL_ARROWS, {})
 
     # Get devices from config entry data
     devices = entry.data.get(CONF_DEVICES, [])
@@ -81,6 +85,7 @@ async def async_setup_entry(
             name = f"{device_type_str} {snr_int}"
 
             if device_type in COVER_DEVICE_TYPES:
+                product_type = device.get("product_type")
                 entities.append(
                     WaremaCover(
                         coordinator=coordinator,
@@ -90,11 +95,26 @@ async def async_setup_entry(
                         device_type=device_type,
                         device_type_str=device_type_str,
                         entry_id=entry.entry_id,
-                        product_type=device.get("product_type"),
+                        product_type=product_type,
                         is_with_blinds=device.get("is_with_blinds"),
                         invert=bool(invert_map.get(str(snr_int), False)),
+                        force_vertical_arrows=bool(
+                            force_vertical_map.get(str(snr_int), False)
+                        ),
                     )
                 )
+                valance_count = VALANCE_COUNT_BY_PRODUCT_TYPE.get(product_type, 0)
+                for valance_num in range(1, valance_count + 1):
+                    entities.append(
+                        WaremaValanceCover(
+                            coordinator=coordinator,
+                            snr=snr_int,
+                            snr_hex=snr_hex,
+                            entry_id=entry.entry_id,
+                            valance_num=valance_num,
+                            invert=bool(invert_map.get(str(snr_int), False)),
+                        )
+                    )
     else:
         # No devices configured: scan and add all blinds
         _LOGGER.info("No devices configured, scanning for WMS devices...")
@@ -107,6 +127,7 @@ async def async_setup_entry(
                 snr_hex = device.get("snr_hex", "")
                 device_type_str = device.get("device_type_str", "Blind")
                 name = f"{device_type_str} {snr}"
+                product_type = device.get("product_type")
                 entities.append(
                     WaremaCover(
                         coordinator=coordinator,
@@ -116,11 +137,26 @@ async def async_setup_entry(
                         device_type=device_type,
                         device_type_str=device_type_str,
                         entry_id=entry.entry_id,
-                        product_type=device.get("product_type"),
+                        product_type=product_type,
                         is_with_blinds=device.get("is_with_blinds"),
                         invert=bool(invert_map.get(str(snr), False)),
+                        force_vertical_arrows=bool(
+                            force_vertical_map.get(str(snr), False)
+                        ),
                     )
                 )
+                valance_count = VALANCE_COUNT_BY_PRODUCT_TYPE.get(product_type, 0)
+                for valance_num in range(1, valance_count + 1):
+                    entities.append(
+                        WaremaValanceCover(
+                            coordinator=coordinator,
+                            snr=snr,
+                            snr_hex=snr_hex,
+                            entry_id=entry.entry_id,
+                            valance_num=valance_num,
+                            invert=bool(invert_map.get(str(snr), False)),
+                        )
+                    )
 
     if entities:
         async_add_entities(entities)
@@ -225,6 +261,7 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         product_type: int | None = None,
         is_with_blinds: bool | None = None,
         invert: bool = False,
+        force_vertical_arrows: bool = False,
     ) -> None:
         """Initialize the cover entity."""
         super().__init__(coordinator, context=snr)
@@ -243,7 +280,16 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
         # default to BLIND (matches the pre-product-type behaviour for the
         # in-wall actuators that have historically been the only supported
         # devices).
-        self._attr_device_class = _device_class_for(product_type)
+        # force_vertical_arrows (OPT_FORCE_VERTICAL_ARROWS) is a personal
+        # display preference override - e.g. for an awning that would
+        # otherwise show horizontal open/close arrows, but the owner wants
+        # vertical up/down arrows instead. Purely cosmetic: it does not
+        # change position/command logic, only which CoverDeviceClass (and
+        # therefore which arrow icons) HA renders.
+        if force_vertical_arrows:
+            self._attr_device_class = CoverDeviceClass.SHADE
+        else:
+            self._attr_device_class = _device_class_for(product_type)
 
         # Tilt (slat angle) requires slatted hardware. Authoritative source is
         # the motor's is_with_blinds flag (Block 37 addr 14); when that hasn't
@@ -561,4 +607,173 @@ class WaremaCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
             "wms_position": state.position if state else -1,
             "wms_angle": state.angle if state else 0,
             "moving": state.moving if state else False,
+        }
+
+
+class WaremaValanceCover(CoordinatorEntity[WaremaCoordinator], CoverEntity):
+    """A single valance (Volant) of an awning, as its own Cover entity.
+
+    Position/tilt of the parent awning are left untouched - only the valance
+    byte(s) in the blindMoveToPos command are targeted (see the comment on
+    that command in pywarema/protocol.py). Verified against real hardware
+    (2026-08): the resulting position matches what WMS Studio pro reports
+    independently for the same motor.
+
+    Grouped under the same HA device as the parent WaremaCover (same
+    identifiers), so it shows up as a second control on that device rather
+    than as a separate device.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        snr_hex: str,
+        entry_id: str,
+        valance_num: int,
+        invert: bool = False,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._entry_id = entry_id
+        self._valance_num = valance_num
+        self._invert = invert
+
+        # A valance moves vertically (like a shade), not sideways like a
+        # "classic" awning - same reasoning as the VerticalAwning fix.
+        self._attr_device_class = CoverDeviceClass.SHADE
+        self._attr_supported_features = (
+            CoverEntityFeature.OPEN
+            | CoverEntityFeature.CLOSE
+            | CoverEntityFeature.STOP
+            | CoverEntityFeature.SET_POSITION
+        )
+        self._attr_name = f"Valance {valance_num}"
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_valance_{valance_num}_cover"
+
+        self._command_moving = False
+        self._command_is_opening = False
+        self._command_is_closing = False
+
+    def _get_blind_state(self):
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get(self._snr)
+
+    def _current_wms_valance(self) -> int | None:
+        state = self._get_blind_state()
+        if not state:
+            return None
+        value = state.valance_1 if self._valance_num == 1 else state.valance_2
+        return value
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        # Same identifiers as the parent WaremaCover - this makes it a second
+        # entity on that device rather than a new device.
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def current_cover_position(self) -> int | None:
+        wms_valance = self._current_wms_valance()
+        if wms_valance is None:
+            return None
+        return _wms_pos_to_ha(wms_valance, self._invert)
+
+    @property
+    def is_closed(self) -> bool | None:
+        wms_valance = self._current_wms_valance()
+        if wms_valance is None:
+            return None
+        if self._invert:
+            return wms_valance <= 0
+        return wms_valance >= 100
+
+    @property
+    def is_opening(self) -> bool:
+        state = self._get_blind_state()
+        return bool(state and state.moving and self._command_is_opening)
+
+    @property
+    def is_closing(self) -> bool:
+        state = self._get_blind_state()
+        return bool(state and state.moving and self._command_is_closing)
+
+    @property
+    def available(self) -> bool:
+        """Unavailable until the motor has reported a valance value at least once."""
+        return self._current_wms_valance() is not None
+
+    async def _async_move_to_wms_valance(self, wms_target: int) -> None:
+        kwargs = {
+            "valance_1": wms_target if self._valance_num == 1 else None,
+            "valance_2": wms_target if self._valance_num == 2 else None,
+        }
+        await self.hass.async_add_executor_job(
+            self.coordinator.set_valance_position, self._snr, kwargs["valance_1"], kwargs["valance_2"]
+        )
+
+    async def async_open_cover(self, **kwargs: Any) -> None:
+        target = 100 if self._invert else 0
+        await self._async_move_to_wms_valance(target)
+        self._command_moving = True
+        self._command_is_opening = True
+        self._command_is_closing = False
+        self.async_write_ha_state()
+
+    async def async_close_cover(self, **kwargs: Any) -> None:
+        target = 0 if self._invert else 100
+        await self._async_move_to_wms_valance(target)
+        self._command_moving = True
+        self._command_is_opening = False
+        self._command_is_closing = True
+        self.async_write_ha_state()
+
+    async def async_stop_cover(self, **kwargs: Any) -> None:
+        # The WMS protocol has no per-valance stop - blindStopMove stops
+        # whatever the motor is currently doing for this SNR.
+        await self.hass.async_add_executor_job(self.coordinator.stop, self._snr)
+        self._command_moving = False
+        self._command_is_opening = False
+        self._command_is_closing = False
+        self.async_write_ha_state()
+
+    async def async_set_cover_position(self, **kwargs: Any) -> None:
+        ha_pos = kwargs[ATTR_POSITION]
+        wms_target = _ha_pos_to_wms(ha_pos, self._invert)
+        current_ha = self.current_cover_position
+
+        await self._async_move_to_wms_valance(wms_target)
+
+        self._command_moving = True
+        if current_ha is not None:
+            self._command_is_opening = ha_pos > current_ha
+            self._command_is_closing = ha_pos < current_ha
+        else:
+            self._command_is_opening = False
+            self._command_is_closing = False
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        state = self._get_blind_state()
+        if state and not state.moving:
+            self._command_moving = False
+            self._command_is_opening = False
+            self._command_is_closing = False
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "snr": self._snr,
+            "snr_hex": self._snr_hex,
+            "valance_num": self._valance_num,
+            "wms_valance": self._current_wms_valance(),
         }

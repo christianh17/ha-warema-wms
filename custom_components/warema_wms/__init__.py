@@ -18,7 +18,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
-from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+)
 
 from .const import DOMAIN
 from .coordinator import WaremaCoordinator
@@ -91,9 +95,14 @@ async def _async_handle_test_move_valance(hass: HomeAssistant, call: ServiceCall
         valance_1,
         valance_2,
     )
-    await hass.async_add_executor_job(
-        coordinator.set_valance_position, snr, valance_1, valance_2
-    )
+    try:
+        await hass.async_add_executor_job(
+            coordinator.set_valance_position, snr, valance_1, valance_2
+        )
+    except Exception as exc:
+        raise HomeAssistantError(
+            f"test_move_valance für '{entity_id}' fehlgeschlagen: {exc}"
+        ) from exc
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -107,6 +116,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(f"Cannot connect to WMS stick: {exc}") from exc
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    # Register a "hub" device for this config entry itself, so the
+    # via_device=(DOMAIN, entry.entry_id) references in binary_sensor.py,
+    # button.py, cover.py and sensor.py resolve to a real device instead of
+    # a dangling/non-existent one (HA logs a deprecation warning for that
+    # and will start rejecting it outright from 2025.12.0).
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer="Warema",
+        model="WMS USB Stick",
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

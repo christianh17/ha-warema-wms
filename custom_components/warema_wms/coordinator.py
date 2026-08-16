@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -384,26 +385,63 @@ class WaremaCoordinator(DataUpdateCoordinator[dict[int, BlindState]]):
         snr: int,
         valance_1: int | None = None,
         valance_2: int | None = None,
+        timeout: float = 3.0,
     ) -> None:
-        """EXPERIMENTAL/untested: move a blind's valance(s) to a target %.
+        """Move a blind's valance(s) to a target % and wait for the motor's ack.
 
         Keeps the blind's current position and angle unchanged (reads them
         from the coordinator's last known state) and sends only the valance
         target byte(s). See the comment on the "blindMoveToPos" command in
-        pywarema/protocol.py for what this relies on and why it is unverified.
+        pywarema/protocol.py for what this relies on - verified against real
+        hardware (2026-08).
+
+        Unlike a plain cover move, this blocks (call it via an executor job)
+        until the motor acknowledges the command or `timeout` seconds pass,
+        and raises on failure instead of silently doing nothing - so a
+        caller (e.g. the test_move_valance service) gets a real error
+        instead of a false "success".
+
+        Raises:
+            RuntimeError: if the stick isn't connected, the SNR is unknown,
+                or the motor didn't acknowledge within `timeout` seconds
+                (most likely the command was dropped/ignored - see the
+                pywarema/protocol.py comment).
         """
         if not self.stick:
-            return
+            raise RuntimeError("Warema WMS stick ist nicht verbunden.")
+
         blind = self.stick._get_blind(snr)
-        current_pos = blind.pos_current.pos if blind else 0
-        current_ang = blind.pos_current.ang if blind else 0
+        if not blind:
+            raise RuntimeError(f"Unbekannte Warema-SNR: {snr}.")
+
+        current_pos = blind.pos_current.pos
+        current_ang = blind.pos_current.ang
+
+        done = threading.Event()
+        outcome: dict[str, str] = {}
+
+        def _on_complete(error, msg_sent, msg_rcv):
+            outcome["error"] = error or ""
+            done.set()
+
         self.stick.blind_set_position(
             snr,
             current_pos,
             current_ang,
+            on_complete=_on_complete,
             valance_1=valance_1,
             valance_2=valance_2,
         )
+
+        if not done.wait(timeout):
+            raise RuntimeError(
+                f"Motor {snr} hat innerhalb von {timeout}s nicht bestätigt "
+                "(Befehl wurde vermutlich nicht angenommen)."
+            )
+        if outcome.get("error"):
+            raise RuntimeError(
+                f"Motor {snr} meldete einen Fehler: {outcome['error']}"
+            )
 
     def stop(self, snr: int) -> None:
         """Stop a blind.

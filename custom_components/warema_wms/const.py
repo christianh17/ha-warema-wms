@@ -18,6 +18,16 @@ CONF_DEVICES = "devices"
 # convention only; the physical equivalent is the motor_rotation firmware param.
 OPT_INVERT_POSITION = "invert_position"
 
+# Per-device override to force vertical (up/down) arrows in the HA UI instead
+# of whatever CoverDeviceClass the productType would normally imply. Same
+# storage shape as OPT_INVERT_POSITION: dict keyed by string SNR -> bool.
+# Purely a display/icon choice (does not change position/command logic) -
+# intended for e.g. an awning owner who personally prefers vertical arrows
+# over the "correct" horizontal ones for a sideways-extending awning.
+# Not exposed in the config flow UI; edit entry.options in
+# .storage/core.config_entries manually, same as PAN-ID/network_key.
+OPT_FORCE_VERTICAL_ARROWS = "force_vertical_arrows"
+
 # Default values
 DEFAULT_SERIAL_PORT = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AV0K28M2-if00-port0"
 DEFAULT_CHANNEL = 17
