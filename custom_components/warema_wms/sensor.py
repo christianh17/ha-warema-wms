@@ -1,122 +1,546 @@
-"""Constants for the Warema WMS integration."""
+"""Sensor platform for Warema WMS integration.
 
-DOMAIN = "warema_wms"
+Exposes per-blind sensors:
+  - WMS Position  (0 = open, 100 = closed) in %
+  - WMS Angle     (decoded value, same range as get_position.py output)
+  - Motor SNR     (serial number as text)
+"""
 
-# Config entry keys
-CONF_SERIAL_PORT = "serial_port"
-CONF_CHANNEL = "channel"
-CONF_PAN_ID = "pan_id"
-CONF_NETWORK_KEY = "network_key"
-CONF_DEVICES = "devices"
+from __future__ import annotations
 
-# Options entry keys
-# Per-device position inversion. Stored under entry.options as a dict keyed by
-# the device's string SNR -> bool. When True, the cover's open/closed direction
-# is mirrored in HA (display + commands) without touching the motor. Intended
-# for awnings (Markisen), where the retracted/home position is intuitively
-# "closed" while WMS reports it as 0 (= HA "open"). This is a HA-side display
-# convention only; the physical equivalent is the motor_rotation firmware param.
-OPT_INVERT_POSITION = "invert_position"
+import logging
+from typing import Any
 
-# Per-device override to force vertical (up/down) arrows in the HA UI instead
-# of whatever CoverDeviceClass the productType would normally imply. Same
-# storage shape as OPT_INVERT_POSITION: dict keyed by string SNR -> bool.
-# Purely a display/icon choice (does not change position/command logic) -
-# intended for e.g. an awning owner who personally prefers vertical arrows
-# over the "correct" horizontal ones for a sideways-extending awning.
-# Not exposed in the config flow UI; edit entry.options in
-# .storage/core.config_entries manually, same as PAN-ID/network_key.
-OPT_FORCE_VERTICAL_ARROWS = "force_vertical_arrows"
-
-# Default values
-DEFAULT_SERIAL_PORT = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AV0K28M2-if00-port0"
-DEFAULT_CHANNEL = 17
-
-# Position polling interval (seconds)
-# Note: Determines how fast remote control moves are detected.
-# Shorter interval = faster detection but more network traffic.
-POS_UPDATE_INTERVAL = 5
-
-# Watch moving blinds interval (seconds)
-WATCH_MOVING_INTERVAL = 0.5
-
-# Discovery wizard
-CONF_DISCOVERY_MODE = "discovery_mode"
-DISCOVERY_MODE_MANUAL = "manual"
-DISCOVERY_MODE_WANDSENDER = "wandsender"
-DISCOVERY_MODE_NEW_NETWORK = "new_network"
-
-# Default channel for new network creation
-DEFAULT_NEW_NETWORK_CHANNEL = 24
-
-# Topics from pywarema callback
-TOPIC_INIT_COMPLETION = "wms-vb-init-completion"
-TOPIC_BLIND_POSITION_UPDATE = "wms-vb-blind-position-update"
-TOPIC_SCANNED_DEVICES = "wms-vb-scanned-devices"
-TOPIC_WEATHER_BROADCAST = "wms-vb-rcv-weather-broadcast"
-
-# Dispatcher signal fired when a previously unseen weather station broadcasts.
-# Carries the station's integer SNR; formatted per config entry at use site.
-SIGNAL_NEW_WEATHER_STATION = f"{DOMAIN}_new_weather_station"
-
-# Device type table, platform routing and the tilt fallback set live in
-# pywarema.device_types (single source of truth, importable without HA).
-# Re-exported here because the HA-side modules import them from const.
-from .pywarema.device_types import (  # noqa: F401  (re-export)
-    BLIND_DEVICE_TYPES,
-    COVER_DEVICE_TYPES,
-    DEVICE_TYPE_STRINGS,
-    LIGHT_DIMMER_DEVICE_TYPES,
-    SUPPORTED_DEVICE_TYPES,
-    TILT_DEVICE_TYPES,
-    device_type_name,
-    is_cover_device,
-    is_light_device,
-    is_supported_device,
-    platform_for_device_type,
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
 )
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import (
+    LIGHT_LUX,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfSpeed,
+    UnitOfTemperature,
+)
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-# Map productType (from motor Block 37 addr 12) to HA CoverDeviceClass strings.
-# Kept as strings here to avoid importing homeassistant from const.py - cover.py
-# wraps them in CoverDeviceClass(...). Anything not listed falls through to
-# CoverDeviceClass.BLIND.
-#
-# See pywarema.protocol.PRODUCT_TYPE_NAMES for the full productType table.
-PRODUCT_TYPE_TO_DEVICE_CLASS: dict[int, str] = {
-    0: "blind",  # ExternalVenetianBlind (Raffstore)
-    1: "blind",  # InternalVenetianBlind
-    2: "shutter",  # RollerShutter (Rollladen)
-    3: "awning",  # Awning
-    4: "awning",  # AwningOneValance
-    5: "awning",  # AwningOneOrTwoWindsensors
-    6: "awning",  # AwningOneValanceOneOrTwoWindsensors
-    7: "awning",  # ConservatoryAwning (Wintergarten)
-    8: "awning",  # FacadeAwning (Fassadenmarkise)
-    9: "awning",  # DroparmAwning (Gelenkarm)
-    10: "shade",  # VerticalAwning (Senkrechtmarkise/Zipscreen) - moves vertically like a shade, not sideways like an awning
-    11: "awning",  # Markisolette
-    12: "shade",  # PleatedBlindInside (Plissee)
-    13: "shade",  # RollerBlindInside (Innenrollo)
-    14: "blind",  # VerticalLouvreBlind (Vertikallamellen)
-    15: "window",  # Window
-    21: "awning",  # Valance (Volant)
-    22: "awning",  # AwningTwoValances
-    23: "awning",  # AwningTwoValancesOneOrTwoWindsensors
-    24: "awning",  # SunSail
-    25: "awning",  # PergolaAwning
-    27: "awning",  # SlatRoofL60 (Lamellendach)
-    28: "awning",  # SlatRoofL70 (Lamellendach)
-    29: "awning",  # SlatRoofL70Tilting (Lamellendach)
-}
+from .const import (
+    COVER_DEVICE_TYPES,
+    CONF_DEVICES,
+    DOMAIN,
+    SIGNAL_NEW_WEATHER_STATION,
+    SUPPORTED_DEVICE_TYPES,
+    VALANCE_COUNT_BY_PRODUCT_TYPE,
+)
+from .coordinator import WaremaCoordinator
 
-# Number of separately-controllable valances (Volants) a productType has, so
-# cover.py can create one WaremaValanceCover per valance without hardcoding
-# per-device logic. Products not listed here have no controllable valance -
-# this deliberately excludes productType 21 ("Valance"), which IS a
-# standalone valance-only device rather than an awning that also has one.
-VALANCE_COUNT_BY_PRODUCT_TYPE: dict[int, int] = {
-    4: 1,  # AwningOneValance
-    6: 1,  # AwningOneValanceOneOrTwoWindsensors
-    22: 2,  # AwningTwoValances
-    23: 2,  # AwningTwoValancesOneOrTwoWindsensors
-}
+_LOGGER = logging.getLogger(__name__)
+
+# (key, friendly_name, unit, icon)
+_SENSOR_DEFS = [
+    ("position", "WMS Position", "%", "mdi:window-shutter"),
+    ("angle", "WMS Angle", None, "mdi:angle-acute"),
+]
+
+# (attr, name, icon) for read-only motor info sensors (Block 81, diagnostic).
+_MOTOR_INFO_SENSOR_DEFS = [
+    ("software_version", "Softwareversion", "mdi:chip"),
+    ("device_type_name", "Gerätetyp", "mdi:cog"),
+]
+
+# (attr, translation_key, unit, device_class, icon) for weather station readings.
+_WEATHER_SENSOR_DEFS = [
+    (
+        "temp",
+        "weather_temperature",
+        UnitOfTemperature.CELSIUS,
+        SensorDeviceClass.TEMPERATURE,
+        "mdi:thermometer",
+    ),
+    (
+        "wind",
+        "weather_wind_speed",
+        UnitOfSpeed.METERS_PER_SECOND,
+        SensorDeviceClass.WIND_SPEED,
+        "mdi:weather-windy",
+    ),
+    (
+        "lumen",
+        "weather_brightness",
+        LIGHT_LUX,
+        SensorDeviceClass.ILLUMINANCE,
+        "mdi:white-balance-sunny",
+    ),
+]
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Warema WMS sensor entities from a config entry."""
+    coordinator: WaremaCoordinator = hass.data[DOMAIN][entry.entry_id]
+    entities: list = []
+
+    for device in entry.data.get(CONF_DEVICES, []):
+        device_type = device.get("device_type", "20")
+        if device_type not in SUPPORTED_DEVICE_TYPES:
+            continue
+
+        snr = device.get("snr")
+        snr_hex = device.get("snr_hex", "")
+        device_type_str = device.get("device_type_str", "Blind")
+        snr_int = int(snr) if not isinstance(snr, int) else snr
+
+        # Product type diagnostic - created for every supported device, since
+        # it is the field we need to identify what a device actually is.
+        entities.append(
+            WaremaProductTypeSensor(
+                snr=snr_int,
+                snr_hex=snr_hex,
+                device_type=device_type,
+                device_type_str=device_type_str,
+                product_type=device.get("product_type"),
+                entry_id=entry.entry_id,
+            )
+        )
+
+        # The remaining sensors describe a cover (position, angle, valances).
+        if device_type not in COVER_DEVICE_TYPES:
+            continue
+
+        # Position and angle sensors
+        for key, name, unit, icon in _SENSOR_DEFS:
+            entities.append(
+                WaremaWmsSensor(
+                    coordinator=coordinator,
+                    snr=snr_int,
+                    snr_hex=snr_hex,
+                    device_type_str=device_type_str,
+                    entry_id=entry.entry_id,
+                    key=key,
+                    name=name,
+                    unit=unit,
+                    icon=icon,
+                )
+            )
+
+        # Motor SNR sensor (static text sensor showing the device ID)
+        entities.append(
+            WaremaSnrSensor(
+                snr=snr_int,
+                snr_hex=snr_hex,
+                device_type_str=device_type_str,
+                entry_id=entry.entry_id,
+            )
+        )
+
+        # Diagnostic sensors for firmware / hardware info (Block 81)
+        for attr, name, icon in _MOTOR_INFO_SENSOR_DEFS:
+            entities.append(
+                WaremaMotorInfoSensor(
+                    coordinator=coordinator,
+                    snr=snr_int,
+                    snr_hex=snr_hex,
+                    device_type_str=device_type_str,
+                    entry_id=entry.entry_id,
+                    attr=attr,
+                    name=name,
+                    icon=icon,
+                )
+            )
+
+        # Valance position sensors (read-only) - only for products that
+        # actually have a valance (see VALANCE_COUNT_BY_PRODUCT_TYPE). Most
+        # covers (plain Raffstore/Rollladen/Zipscreen) don't, and would
+        # otherwise get a permanently "unavailable" Valance 1/2 sensor pair
+        # for no reason.
+        valance_count = VALANCE_COUNT_BY_PRODUCT_TYPE.get(device.get("product_type"), 0)
+        for valance_num in range(1, valance_count + 1):
+            entities.append(
+                WaremaValanceSensor(
+                    coordinator=coordinator,
+                    snr=snr_int,
+                    snr_hex=snr_hex,
+                    device_type_str=device_type_str,
+                    entry_id=entry.entry_id,
+                    valance_num=valance_num,
+                )
+            )
+
+    if entities:
+        async_add_entities(entities)
+        _LOGGER.info("Added %d Warema WMS sensor entities", len(entities))
+
+    # Weather stations are not part of CONF_DEVICES: they broadcast
+    # unsolicited. Create their sensors dynamically the first time a station is
+    # seen, and cover any station that already broadcast before this platform
+    # finished setting up.
+    added_stations: set[int] = set()
+
+    @callback
+    def _add_weather_station(snr: int) -> None:
+        if snr in added_stations:
+            return
+        added_stations.add(snr)
+        async_add_entities(
+            WaremaWeatherSensor(coordinator, snr, entry.entry_id, *defn)
+            for defn in _WEATHER_SENSOR_DEFS
+        )
+
+    for snr in coordinator.weather_data:
+        _add_weather_station(snr)
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            f"{SIGNAL_NEW_WEATHER_STATION}_{entry.entry_id}",
+            _add_weather_station,
+        )
+    )
+
+
+class WaremaWmsSensor(
+    CoordinatorEntity[WaremaCoordinator], SensorEntity, RestoreEntity
+):
+    """A numeric sensor that mirrors one field from the WMS position payload."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        snr_hex: str,
+        device_type_str: str,
+        entry_id: str,
+        key: str,
+        name: str,
+        unit: str | None,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._device_type_str = device_type_str
+        self._entry_id = entry_id
+        self._key = key
+        self._cached_value: int | None = None
+
+        self._attr_name = name
+        self._attr_native_unit_of_measurement = unit
+        self._attr_icon = icon
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_{key}"
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known value after HA restart."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                try:
+                    self._cached_value = int(float(last_state.state))
+                except (ValueError, TypeError):
+                    pass
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update cached value whenever coordinator delivers a valid reading."""
+        state = self._get_blind_state()
+        if state and state.position >= 0:
+            self._cached_value = (
+                state.position if self._key == "position" else state.angle
+            )
+        super()._handle_coordinator_update()
+
+    def _get_blind_state(self):
+        """Get the current blind state from coordinator data."""
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get(self._snr)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            name=f"{self._device_type_str} {self._snr}",
+            manufacturer="Warema",
+            model=self._device_type_str,
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Return live coordinator value, or last cached value if unavailable."""
+        state = self._get_blind_state()
+        if state and state.position >= 0:
+            return state.position if self._key == "position" else state.angle
+        return self._cached_value
+
+
+class WaremaSnrSensor(SensorEntity):
+    """Text sensor that displays the motor SNR (serial number)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        snr: int,
+        snr_hex: str,
+        device_type_str: str,
+        entry_id: str,
+    ) -> None:
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._device_type_str = device_type_str
+        self._entry_id = entry_id
+
+        self._attr_name = "Motor SNR"
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_snr"
+        self._attr_icon = "mdi:identifier"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            name=f"{self._device_type_str} {self._snr}",
+            manufacturer="Warema",
+            model=self._device_type_str,
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return the SNR as a formatted string (dec and hex)."""
+        return f"{self._snr} (hex: {self._snr_hex})"
+
+
+class WaremaWeatherSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
+    """A numeric sensor mirroring one field of a WMS weather broadcast."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        entry_id: str,
+        attr: str,
+        translation_key: str,
+        unit: str,
+        device_class: SensorDeviceClass,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._entry_id = entry_id
+        self._field = attr
+
+        self._attr_translation_key = translation_key
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+        self._attr_icon = icon
+        self._attr_unique_id = f"{DOMAIN}_weather_{snr}_{attr}"
+
+    def _get_state(self):
+        return self.coordinator.weather_data.get(self._snr)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        state = self._get_state()
+        snr_hex = state.snr_hex if state else ""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"weather_{self._snr}")},
+            name=f"Weather station {self._snr}",
+            manufacturer="Warema",
+            model="Weather station",
+            via_device=(DOMAIN, self._entry_id),
+            serial_number=snr_hex or None,
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._get_state() is not None
+
+    @property
+    def native_value(self) -> float | int | None:
+        state = self._get_state()
+        if state is None:
+            return None
+        return getattr(state, self._field)
+
+
+class WaremaMotorInfoSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
+    """Diagnostic sensor exposing a read-only firmware/hardware field (Block 81)."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        snr_hex: str,
+        device_type_str: str,
+        entry_id: str,
+        attr: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._device_type_str = device_type_str
+        self._entry_id = entry_id
+        self._attr_key = attr
+
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_{attr}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            name=self._device_type_str,
+            manufacturer="Warema",
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._snr in self.coordinator.motor_params
+
+    @property
+    def native_value(self) -> str | None:
+        params = self.coordinator.motor_params.get(self._snr)
+        if params is None:
+            return None
+        return getattr(params, self._attr_key, None)
+
+
+class WaremaProductTypeSensor(SensorEntity):
+    """Diagnostic sensor showing the product type reported by the device.
+
+    The product type (Block 37) decides how the device is driven: whether it
+    has a position axis, whether its louvres tilt, and which slat angle range
+    applies. Exposing it makes that visible without reading the debug log.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "product_type"
+    _attr_icon = "mdi:information-outline"
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        snr: int,
+        snr_hex: str,
+        device_type: str,
+        device_type_str: str,
+        product_type: int | None,
+        entry_id: str,
+    ) -> None:
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._device_type = device_type
+        self._device_type_str = device_type_str
+        self._product_type = product_type
+        self._entry_id = entry_id
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_product_type"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            name=self._device_type_str,
+            manufacturer="Warema",
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return e.g. '28 SlatRoofL70', or 'unknown' when not read yet."""
+        from .pywarema.protocol import product_type_name
+
+        if self._product_type is None:
+            return "unknown"
+        return f"{self._product_type} {product_type_name(self._product_type)}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the raw identifying fields for support requests."""
+        return {
+            "device_type": self._device_type,
+            "device_type_str": self._device_type_str,
+            "product_type": self._product_type,
+            "snr": self._snr,
+            "snr_hex": self._snr_hex,
+        }
+
+
+class WaremaValanceSensor(CoordinatorEntity[WaremaCoordinator], SensorEntity):
+    """Sensor exposing valance position (read-only, 0-100 %).
+
+    Not a diagnostic sensor - shown alongside "WMS Position"/"WMS Angle" as a
+    normal, at-a-glance value (this is the single source of truth for the
+    valance position; WaremaValanceCover reads from the same coordinator data,
+    no separate/duplicated value).
+    """
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: WaremaCoordinator,
+        snr: int,
+        snr_hex: str,
+        device_type_str: str,
+        entry_id: str,
+        valance_num: int,
+    ) -> None:
+        super().__init__(coordinator, context=snr)
+        self._snr = snr
+        self._snr_hex = snr_hex
+        self._device_type_str = device_type_str
+        self._entry_id = entry_id
+        self._valance_num = valance_num
+
+        self._attr_name = f"WMS Volant {valance_num} Position"
+        self._attr_icon = "mdi:window-shade"
+        self._attr_unique_id = f"{DOMAIN}_{snr_hex}_valance_{valance_num}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._snr_hex)},
+            name=self._device_type_str,
+            manufacturer="Warema",
+            via_device=(DOMAIN, self._entry_id),
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Return valance position (0-100 %) or None if not present/available."""
+        if not self.coordinator.data:
+            return None
+        state = self.coordinator.data.get(self._snr)
+        if state is None:
+            return None
+        if self._valance_num == 1:
+            return state.valance_1
+        elif self._valance_num == 2:
+            return state.valance_2
+        return None
